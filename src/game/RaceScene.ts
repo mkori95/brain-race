@@ -85,6 +85,12 @@ export class RaceScene extends Phaser.Scene {
   private playerScreenX = 0
   private laneChangeCooldown = 0
 
+  // Manual speed keys (held each frame)
+  private keyUp!: Phaser.Input.Keyboard.Key
+  private keyDown!: Phaser.Input.Keyboard.Key
+  private keyW!: Phaser.Input.Keyboard.Key
+  private keyS!: Phaser.Input.Keyboard.Key
+
   // Nitro particles
   private particles: { x: number; y: number; vy: number; alpha: number; r: number }[] = []
 
@@ -357,6 +363,13 @@ export class RaceScene extends Phaser.Scene {
     this.input.keyboard!.on('keydown-A',     () => this.changeLane(-1))
     this.input.keyboard!.on('keydown-D',     () => this.changeLane(1))
 
+    // Held keys for boost / brake
+    const kb = this.input.keyboard!
+    this.keyUp   = kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP)
+    this.keyDown = kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN)
+    this.keyW    = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W)
+    this.keyS    = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+
     // Touch: tap left half = go left, right half = go right
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       this.changeLane(p.x < CANVAS_W / 2 ? -1 : 1)
@@ -382,7 +395,16 @@ export class RaceScene extends Phaser.Scene {
     const targetX = this.laneToX(this.playerLane)
     this.playerScreenX += (targetX - this.playerScreenX) * Math.min(1, ds * LANE_SNAP_SPEED)
 
-    const scrollSpeed = raceBridge.playerSpeed * MAX_SCROLL
+    // Manual boost / brake (held keys) — visual only, doesn't affect race distance
+    const boosting = this.keyUp?.isDown || this.keyW?.isDown
+    const braking  = this.keyDown?.isDown || this.keyS?.isDown
+    if (boosting && !raceBridge.isNitro) raceBridge.isNitro = true
+    if (!boosting && raceBridge.isNitro) raceBridge.isNitro = false
+    if (braking && !raceBridge.isBraking) raceBridge.isBraking = true
+    if (!braking && raceBridge.isBraking) raceBridge.isBraking = false
+
+    const speedFactor = boosting ? 1.35 : braking ? 0.55 : 1.0
+    const scrollSpeed = raceBridge.playerSpeed * MAX_SCROLL * speedFactor
 
     this.scrollDashes(scrollSpeed, ds)
     this.scrollScenery(scrollSpeed, ds)
