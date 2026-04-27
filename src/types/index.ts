@@ -168,4 +168,5 @@ export interface GameActions {
   answerQuestion: (answer: string) => void
   endRace: () => void
   resetRace: () => void
+  _advanceQuestion: (nextIndex: number, questions: Question[]) => void
 }

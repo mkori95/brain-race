@@ -70,31 +70,31 @@ const useGameStore = create<GameStore>((set, get) => ({
   selectedVehicleId: 'city_hatchback',
 
   // ── Auth actions ───────────────────────────────────────────
-  setUser: (user) => {
+  setUser: (user: AppUser | null) => {
     set({ user, selectedVehicleId: user?.progress.selectedVehicle ?? 'city_hatchback' })
   },
-  setAuthLoading: (authLoading) => set({ authLoading }),
+  setAuthLoading: (authLoading: boolean) => set({ authLoading }),
 
-  updatePersona: (persona) => {
+  updatePersona: (persona: Persona) => {
     const { user } = get()
     if (!user) return
     set({ user: { ...user, persona } })
   },
 
-  updateProgress: (updates) => {
+  updateProgress: (updates: Partial<PlayerProgress>) => {
     const { user } = get()
     if (!user) return
     const newProgress = { ...user.progress, ...updates }
     set({ user: { ...user, progress: newProgress } })
   },
 
-  setSelectedVehicle: (vehicleId) => {
+  setSelectedVehicle: (vehicleId: string) => {
     set({ selectedVehicleId: vehicleId })
     const { user } = get()
     if (user) saveSelectedVehicle(user.uid, vehicleId).catch(console.error)
   },
 
-  setRaceTopicOverride: (topic) => set({ raceTopicOverride: topic }),
+  setRaceTopicOverride: (topic: string | null) => set({ raceTopicOverride: topic }),
 
   // ── Race lifecycle ─────────────────────────────────────────
   prepareRace: async () => {
@@ -456,9 +456,7 @@ const useGameStore = create<GameStore>((set, get) => ({
     })
   },
 
-  // Needed for internal call from answerQuestion
-  _advanceQuestion: (_nextIndex: number, _questions: Question[]) => {},
-} as unknown as GameStore))
+}))
 
 // Attach internal method properly after creation
 const store = useGameStore
