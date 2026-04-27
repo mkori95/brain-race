@@ -1,0 +1,242 @@
+[
+  {
+    "id": "fq_001",
+    "topic": "Programming",
+    "question": "What keyword defines a function in Python?",
+    "options": ["def", "function", "fn", "define"],
+    "correct": "def",
+    "explanation": "In Python, 'def' is the keyword used to declare a function, followed by the function name and parentheses."
+  },
+  {
+    "id": "fq_002",
+    "topic": "Programming",
+    "question": "What does CSS stand for?",
+    "options": ["Cascading Style Sheets", "Creative Style System", "Computer Style Syntax", "Coded Style Sheets"],
+    "correct": "Cascading Style Sheets",
+    "explanation": "CSS stands for Cascading Style Sheets — it controls the visual presentation of HTML documents."
+  },
+  {
+    "id": "fq_003",
+    "topic": "Linux",
+    "question": "Which command lists files in a directory?",
+    "options": ["ls", "dir", "list", "show"],
+    "correct": "ls",
+    "explanation": "The 'ls' command lists files and directories in Linux/Unix systems. Use 'ls -la' to see hidden files and details."
+  },
+  {
+    "id": "fq_004",
+    "topic": "Git",
+    "question": "What does 'git clone' do?",
+    "options": ["Copies a repository", "Deletes a branch", "Merges changes", "Commits files"],
+    "correct": "Copies a repository",
+    "explanation": "'git clone' downloads a complete copy of a remote repository to your local machine."
+  },
+  {
+    "id": "fq_005",
+    "topic": "Programming",
+    "question": "What does HTML stand for?",
+    "options": ["HyperText Markup Language", "High Tech Modern Language", "Hyper Transfer Meta Link", "Home Tool Markup Language"],
+    "correct": "HyperText Markup Language",
+    "explanation": "HTML stands for HyperText Markup Language — it's the standard language for creating web pages."
+  },
+  {
+    "id": "fq_006",
+    "topic": "Programming",
+    "question": "Which language runs natively in browsers?",
+    "options": ["JavaScript", "Python", "Java", "C++"],
+    "correct": "JavaScript",
+    "explanation": "JavaScript is the only programming language that runs natively in web browsers, making it essential for web development."
+  },
+  {
+    "id": "fq_007",
+    "topic": "Git",
+    "question": "Which command stages all changed files?",
+    "options": ["git add .", "git commit", "git push", "git stage"],
+    "correct": "git add .",
+    "explanation": "'git add .' stages all modified and new files in the current directory for the next commit."
+  },
+  {
+    "id": "fq_008",
+    "topic": "Programming",
+    "question": "What is a variable in programming?",
+    "options": ["A storage container for data", "A type of loop", "A math operator", "A function name"],
+    "correct": "A storage container for data",
+    "explanation": "A variable is a named container that stores data values which can be changed (varied) during program execution."
+  },
+  {
+    "id": "fq_009",
+    "topic": "Science",
+    "question": "What planet is closest to the Sun?",
+    "options": ["Mercury", "Venus", "Earth", "Mars"],
+    "correct": "Mercury",
+    "explanation": "Mercury is the smallest planet and the closest to the Sun, completing one orbit in just 88 Earth days."
+  },
+  {
+    "id": "fq_010",
+    "topic": "Science",
+    "question": "What is the chemical symbol for water?",
+    "options": ["H2O", "CO2", "NaCl", "O2"],
+    "correct": "H2O",
+    "explanation": "Water is H2O — two hydrogen atoms bonded to one oxygen atom. This molecular structure gives water its unique properties."
+  },
+  {
+    "id": "fq_011",
+    "topic": "Science",
+    "question": "How many bones does an adult human have?",
+    "options": ["206", "300", "180", "256"],
+    "correct": "206",
+    "explanation": "Adult humans have 206 bones. Babies are born with about 270 bones, which fuse together as they grow."
+  },
+  {
+    "id": "fq_012",
+    "topic": "Science",
+    "question": "What gas do plants absorb from the air?",
+    "options": ["Carbon dioxide", "Oxygen", "Nitrogen", "Hydrogen"],
+    "correct": "Carbon dioxide",
+    "explanation": "Plants absorb carbon dioxide (CO2) during photosynthesis, using sunlight and water to convert it into glucose and oxygen."
+  },
+  {
+    "id": "fq_013",
+    "topic": "History",
+    "question": "Who was the first US president?",
+    "options": ["George Washington", "Abraham Lincoln", "Thomas Jefferson", "John Adams"],
+    "correct": "George Washington",
+    "explanation": "George Washington became the first President of the United States in 1789 and served two terms."
+  },
+  {
+    "id": "fq_014",
+    "topic": "History",
+    "question": "In what year did World War II end?",
+    "options": ["1945", "1939", "1941", "1950"],
+    "correct": "1945",
+    "explanation": "World War II ended in 1945 — in Europe on May 8 (V-E Day) and in the Pacific on September 2 (V-J Day)."
+  },
+  {
+    "id": "fq_015",
+    "topic": "History",
+    "question": "Which ancient wonder was in Egypt?",
+    "options": ["Great Pyramid of Giza", "Colosseum", "Parthenon", "Stonehenge"],
+    "correct": "Great Pyramid of Giza",
+    "explanation": "The Great Pyramid of Giza is the oldest and only surviving wonder of the ancient world, built around 2560 BC."
+  },
+  {
+    "id": "fq_016",
+    "topic": "Geography",
+    "question": "What is the capital of Japan?",
+    "options": ["Tokyo", "Osaka", "Kyoto", "Hiroshima"],
+    "correct": "Tokyo",
+    "explanation": "Tokyo is the capital and largest city of Japan, and one of the most populous metropolitan areas in the world."
+  },
+  {
+    "id": "fq_017",
+    "topic": "Geography",
+    "question": "Which is the longest river in the world?",
+    "options": ["Nile", "Amazon", "Yangtze", "Mississippi"],
+    "correct": "Nile",
+    "explanation": "The Nile River in Africa is the world's longest river at approximately 6,650 km, flowing northward through 11 countries."
+  },
+  {
+    "id": "fq_018",
+    "topic": "Geography",
+    "question": "How many continents are on Earth?",
+    "options": ["7", "5", "6", "8"],
+    "correct": "7",
+    "explanation": "Earth has 7 continents: Africa, Antarctica, Asia, Australia/Oceania, Europe, North America, and South America."
+  },
+  {
+    "id": "fq_019",
+    "topic": "Sports",
+    "question": "How many players are on a football team?",
+    "options": ["11", "9", "12", "10"],
+    "correct": "11",
+    "explanation": "A standard football (soccer) team has 11 players on the field, including the goalkeeper."
+  },
+  {
+    "id": "fq_020",
+    "topic": "Sports",
+    "question": "Which sport uses a shuttlecock?",
+    "options": ["Badminton", "Tennis", "Squash", "Racquetball"],
+    "correct": "Badminton",
+    "explanation": "Badminton uses a shuttlecock (also called a birdie) — a feathered or plastic projectile hit with a lightweight racket."
+  },
+  {
+    "id": "fq_021",
+    "topic": "Fun & Silly",
+    "question": "Which fruit has its seeds on the outside?",
+    "options": ["Strawberry", "Grape", "Cherry", "Blueberry"],
+    "correct": "Strawberry",
+    "explanation": "Strawberries have their seeds (called achenes) on the outside — technically making each 'seed' a separate fruit!"
+  },
+  {
+    "id": "fq_022",
+    "topic": "Fun & Silly",
+    "question": "How many legs does a spider have?",
+    "options": ["8", "6", "10", "12"],
+    "correct": "8",
+    "explanation": "Spiders have 8 legs, which is why they are arachnids, not insects. Insects have only 6 legs."
+  },
+  {
+    "id": "fq_023",
+    "topic": "Fun & Silly",
+    "question": "What animal sleeps standing up?",
+    "options": ["Horse", "Dog", "Elephant", "Cow"],
+    "correct": "Horse",
+    "explanation": "Horses can sleep standing up thanks to a special locking mechanism in their legs called the 'stay apparatus'."
+  },
+  {
+    "id": "fq_024",
+    "topic": "General Knowledge",
+    "question": "How many colors are in a rainbow?",
+    "options": ["7", "5", "6", "8"],
+    "correct": "7",
+    "explanation": "A rainbow has 7 colors: red, orange, yellow, green, blue, indigo, and violet — remembered as ROYGBIV."
+  },
+  {
+    "id": "fq_025",
+    "topic": "General Knowledge",
+    "question": "What is the fastest land animal?",
+    "options": ["Cheetah", "Lion", "Leopard", "Greyhound"],
+    "correct": "Cheetah",
+    "explanation": "The cheetah is the fastest land animal, reaching speeds of up to 112 km/h (70 mph) in short bursts."
+  },
+  {
+    "id": "fq_026",
+    "topic": "Programming",
+    "question": "What does SQL stand for?",
+    "options": ["Structured Query Language", "Simple Query Logic", "System Queue List", "Stored Query Link"],
+    "correct": "Structured Query Language",
+    "explanation": "SQL stands for Structured Query Language — it's used to communicate with and manage relational databases."
+  },
+  {
+    "id": "fq_027",
+    "topic": "AI",
+    "question": "What does AI stand for?",
+    "options": ["Artificial Intelligence", "Automated Input", "Advanced Interface", "Analog Integration"],
+    "correct": "Artificial Intelligence",
+    "explanation": "AI stands for Artificial Intelligence — the simulation of human intelligence processes by computer systems."
+  },
+  {
+    "id": "fq_028",
+    "topic": "Math",
+    "question": "What is the value of Pi (first 2 decimals)?",
+    "options": ["3.14", "3.16", "3.12", "3.18"],
+    "correct": "3.14",
+    "explanation": "Pi (π) is approximately 3.14159... — it's the ratio of a circle's circumference to its diameter."
+  },
+  {
+    "id": "fq_029",
+    "topic": "Science",
+    "question": "What is the speed of light (approx)?",
+    "options": ["300,000 km/s", "150,000 km/s", "500,000 km/s", "100,000 km/s"],
+    "correct": "300,000 km/s",
+    "explanation": "Light travels at approximately 299,792 km/s in a vacuum — the fastest speed possible in the universe."
+  },
+  {
+    "id": "fq_030",
+    "topic": "General Knowledge",
+    "question": "How many hours are in a day?",
+    "options": ["24", "12", "48", "20"],
+    "correct": "24",
+    "explanation": "A day has 24 hours, which is the time it takes for Earth to complete one full rotation on its axis."
+  }
+]
