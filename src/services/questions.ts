@@ -39,7 +39,9 @@ export const fetchQuestions = async (opts: FetchQuestionsOptions): Promise<{ que
 
 const getOfflineQuestions = (persona: Persona, excludeIds: string[]): Question[] => {
   const all = fallbackQuestions as Question[]
-  const available = all.filter((q) => !excludeIds.includes(q.id))
+  // When all questions have been seen, reset pool so offline mode never returns empty
+  let available = all.filter((q) => !excludeIds.includes(q.id))
+  if (available.length < 10) available = all
 
   // Weight questions that match interests
   const interests = persona.interests.map((i) => i.toLowerCase())

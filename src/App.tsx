@@ -11,6 +11,7 @@ import RaceSetupScreen     from './screens/RaceSetupScreen'
 import VehicleSelectionScreen from './screens/VehicleSelectionScreen'
 import RaceScreen          from './screens/RaceScreen'
 import PostRaceScreen      from './screens/PostRaceScreen'
+import QualiScreen         from './screens/QualiScreen'
 import GarageScreen        from './screens/GarageScreen'
 import DailyChallengeScreen from './screens/DailyChallengeScreen'
 import ProfileScreen       from './screens/ProfileScreen'
@@ -86,6 +87,7 @@ export default function App() {
         <Route path="/home"      element={<AuthGuard><HomeScreen /></AuthGuard>} />
         <Route path="/race-setup" element={<AuthGuard><RaceSetupScreen /></AuthGuard>} />
         <Route path="/vehicles"  element={<AuthGuard><VehicleSelectionScreen /></AuthGuard>} />
+        <Route path="/qualify"   element={<AuthGuard><QualiScreen /></AuthGuard>} />
         <Route path="/race"      element={<AuthGuard><RaceScreen /></AuthGuard>} />
         <Route path="/post-race" element={<AuthGuard><PostRaceScreen /></AuthGuard>} />
         <Route path="/garage"    element={<AuthGuard><GarageScreen /></AuthGuard>} />

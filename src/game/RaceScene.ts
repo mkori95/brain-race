@@ -1,457 +1,678 @@
 import Phaser from 'phaser'
 import { raceBridge } from './raceBridge'
 
-// ── Canvas & road layout ──────────────────────────────────────────
-const CANVAS_W = 480
-const CANVAS_H = 320
-const ROAD_W = 270
+// ── Canvas & road ──────────────────────────────────────────────
+const CANVAS_W   = 480
+const CANVAS_H   = 560
+const ROAD_W     = 270
 const LANE_COUNT = 5
-const LANE_W = ROAD_W / LANE_COUNT          // 54px per lane
-const ROAD_LEFT = (CANVAS_W - ROAD_W) / 2  // 105px margin each side
-const ROAD_RIGHT = ROAD_LEFT + ROAD_W
-const PLAYER_Y = CANVAS_H * 0.76
-const PX_PER_M = 0.20                       // px per metre distance diff (AI positioning)
-const MAX_SCROLL = 400                       // px/sec at player speed = 1.0
-const LANE_SNAP_SPEED = 10                  // multiplier for smooth lane transition
+const LANE_W     = ROAD_W / LANE_COUNT          // 54
+const ROAD_LEFT  = (CANVAS_W - ROAD_W) / 2      // 105
+const ROAD_RIGHT = ROAD_LEFT + ROAD_W            // 375
+const PLAYER_Y   = CANVAS_H * 0.82
 
-// ── Car dimensions ────────────────────────────────────────────────
-const CAR_W = 26
-const CAR_H = 44
+// ── Speeds (px/sec) ────────────────────────────────────────────
+const BASE_SPEED     = 200   // starting scroll speed
+const SPEED_RAMP     = 25    // px/sec added per 30 s
+const MAX_SPEED      = 520
+const NITRO_BOOST    = 120
+const CRASH_PENALTY  = 180   // immediate speed loss on collision
+const CRASH_RECOVER  = 2.5   // seconds to recover speed after crash
 
-// ── Colours ───────────────────────────────────────────────────────
+// ── Car dimensions ─────────────────────────────────────────────
+const CAR_W = 28
+const CAR_H = 48
+
+// ── Colours ────────────────────────────────────────────────────
 const C = {
-  sky: 0x080814,
-  grass: 0x1d4a20,
-  grassStripe: 0x163819,
-  asphalt: 0x21212e,
-  asphaltShade: 0x1a1a28,
-  curbRed: 0xcc2222,
-  curbWhite: 0xeeeeee,
-  laneDash: 0xffffff,
-  edgeLine: 0xffffff,
-  player: 0xff6b35,
-  nitroFlame: 0x00ffff,
-  stall: 0x778899,
-  treeTrunk: 0x5a3820,
-  treeGreen: 0x2e7a2e,
-  treeGreenDark: 0x1e5a1e,
-  treeHighlight: 0x3d9e3d,
-  buildingA: 0x1e1e3a,
-  buildingB: 0x2a2040,
-  buildingRoof: 0x151530,
-  window: 0xffee88,
-  windowOff: 0x333355,
-  lamp: 0x9999aa,
-  lampGlow: 0xffffcc,
-  barrier: 0xcc4422,
-  barrierStripe: 0xffffff,
+  grass:        0x1d4a20,
+  grassStripe:  0x163819,
+  asphalt:      0x21212e,
+  curbRed:      0xcc2222,
+  curbWhite:    0xeeeeee,
+  laneDash:     0xffffff,
+  // traffic
+  trafficSlow:  [0xcc4433, 0x4488cc, 0x44aa66, 0xccaa33, 0x886699],
+  oncoming:     0xffcc00,
+  truck:        0x778899,
+  // pickups
+  coin:         0xffd700,
+  fuel:         0x22cc44,
+  nitro:        0x00ccff,
+  oil:          0x221122,
+  // fx
+  sparkRed:     0xff4422,
+  sparkWhite:   0xffffff,
+  nitroFlame:   0x00eeff,
 }
 
-// ── Scenery item types ────────────────────────────────────────────
-type SceneryType = 'tree' | 'building' | 'lamp' | 'barrier'
+// ── Entity types ───────────────────────────────────────────────
+type TrafficType = 'slow' | 'oncoming' | 'truck'
+type PickupType  = 'coin' | 'fuel' | 'nitro' | 'oil'
 
-interface SceneryItem {
-  g: Phaser.GameObjects.Graphics
-  type: SceneryType
-  side: 'left' | 'right'
-  localX: number   // x within the side strip
+interface TrafficCar {
+  lane: number
   y: number
-  seed: number     // deterministic randomness per object
+  type: TrafficType
+  color: number
+  g: Phaser.GameObjects.Graphics
+  label?: Phaser.GameObjects.Text
+  width: number   // lane-span (1 or 2 for truck)
+}
+
+interface PickupItem {
+  lane: number
+  y: number
+  type: PickupType
+  g: Phaser.GameObjects.Graphics
+  collected: boolean
+}
+
+interface Particle {
+  x: number; y: number
+  vx: number; vy: number
+  alpha: number; r: number
+  color: number
 }
 
 interface DashMark {
   g: Phaser.GameObjects.Graphics
-  lane: number     // divider to the right of this lane (0..3)
-  y: number
+  lane: number; y: number
 }
 
-export class RaceScene extends Phaser.Scene {
-  // Rendering layers
-  private bgGfx!: Phaser.GameObjects.Graphics
+interface SceneryItem {
+  g: Phaser.GameObjects.Graphics
+  y: number
+  side: 'left' | 'right'
+}
+
+// ── Road Fighter Race Scene ────────────────────────────────────
+export default class RaceScene extends Phaser.Scene {
+
+  // Graphics layers
+  private bgGfx!:   Phaser.GameObjects.Graphics
   private curbGfx!: Phaser.GameObjects.Graphics
-  private roadGfx!: Phaser.GameObjects.Graphics
-  private fxGfx!: Phaser.GameObjects.Graphics
+  private fxGfx!:   Phaser.GameObjects.Graphics
+  private playerGfx!: Phaser.GameObjects.Graphics
+  private hudGfx!:  Phaser.GameObjects.Graphics
 
-  // Scrolling elements
+  // Scrolling road
   private dashMarks: DashMark[] = []
-  private scenery: SceneryItem[] = []
+  private scenery:   SceneryItem[] = []
 
-  // Vehicles
-  private carGfx: Phaser.GameObjects.Graphics[] = []
-  private carLabels: Phaser.GameObjects.Text[] = []
+  // Traffic & pickups
+  private traffic: TrafficCar[] = []
+  private pickups: PickupItem[] = []
+  private particles: Particle[] = []
 
-  // Player state
-  private playerLane = 2
-  private playerScreenX = 0
+  // Player
+  private playerLane     = 2
+  private playerScreenX  = CANVAS_W / 2
   private laneChangeCooldown = 0
+  private spinDuration   = 0        // ms — spinning after crash
+  private spinAngle      = 0
+  private invincible     = 0        // ms — can't be hit again
+  private crashRecoverT  = 0        // seconds counting up after crash
 
-  // Manual speed keys (held each frame)
-  private keyUp!: Phaser.Input.Keyboard.Key
-  private keyDown!: Phaser.Input.Keyboard.Key
-  private keyW!: Phaser.Input.Keyboard.Key
-  private keyS!: Phaser.Input.Keyboard.Key
+  // Keys
+  private keyLeft!:  Phaser.Input.Keyboard.Key
+  private keyRight!: Phaser.Input.Keyboard.Key
+  private keyA!:     Phaser.Input.Keyboard.Key
+  private keyD!:     Phaser.Input.Keyboard.Key
 
-  // Nitro particles
-  private particles: { x: number; y: number; vy: number; alpha: number; r: number }[] = []
+  // Game state
+  private gameSpeed      = 0         // px/sec scroll
+  private nitroTimer     = 0         // ms remaining
+  private fuel           = 1.0       // 0-1
+  private score          = 0
+  private distance       = 0         // metres
+  private raceStarted    = false
+  private startDelayLeft = 0         // ms remaining before player moves
+  private gameOverFlag   = false
+  private elapsedS       = 0         // total seconds played
+  private spawnTimer     = 0         // ms until next spawn
+  private scoreFloats: { x: number; y: number; text: Phaser.GameObjects.Text; life: number }[] = []
 
   constructor() { super({ key: 'RaceScene' }) }
 
   create() {
+    this.playerLane    = raceBridge.playerLane
     this.playerScreenX = this.laneToX(this.playerLane)
+    this.startDelayLeft = raceBridge.startDelayMs
+    this.fuel          = raceBridge.fuelLevel   // already set by store (based on grid position)
 
-    // Layer order: bg → road → scenery draws on bg layer → fx on top → cars on top
-    this.bgGfx = this.add.graphics()
-    this.curbGfx = this.add.graphics()
-    this.roadGfx = this.add.graphics()
-    this.fxGfx = this.add.graphics()
+    this.bgGfx     = this.add.graphics()
+    this.curbGfx   = this.add.graphics()
+    this.fxGfx     = this.add.graphics()
+    this.hudGfx    = this.add.graphics()
+    this.playerGfx = this.add.graphics()
 
     this.drawBackground()
-    this.buildRoadStripes()
+    this.buildDashes()
     this.buildScenery()
-    this.buildCars()
     this.setupKeys()
+    this.setupSpawnEvents()
   }
 
-  // ── Helpers ──────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────
 
-  private laneToX(lane: number): number {
+  private laneToX(lane: number) {
     return ROAD_LEFT + lane * LANE_W + LANE_W / 2
   }
 
-  // Seeded pseudo-random for stable object shapes
-  private seededRand(seed: number, n: number): number {
+  private seededRand(seed: number, n: number) {
     return ((seed * 9301 + n * 49297 + 233) % 233280) / 233280
   }
 
-  // ── Static background ────────────────────────────────────────────
+  // ── Background (static) ───────────────────────────────────────
 
   private drawBackground() {
     const g = this.bgGfx
-    g.clear()
-
-    // Sky fill
-    g.fillStyle(C.sky, 1)
-    g.fillRect(0, 0, CANVAS_W, CANVAS_H)
-
-    // Grass strips (left + right)
     g.fillStyle(C.grass, 1)
-    g.fillRect(0, 0, ROAD_LEFT, CANVAS_H)
-    g.fillRect(ROAD_RIGHT, 0, CANVAS_W - ROAD_RIGHT, CANVAS_H)
-
-    // Grass texture bands
+    g.fillRect(0, 0, CANVAS_W, CANVAS_H)
+    // Grass texture stripes
     for (let y = 0; y < CANVAS_H; y += 32) {
-      g.fillStyle(C.grassStripe, 0.35)
-      g.fillRect(0, y, ROAD_LEFT, 6)
-      g.fillRect(ROAD_RIGHT, y, CANVAS_W - ROAD_RIGHT, 6)
+      g.fillStyle(C.grassStripe, 0.4)
+      g.fillRect(0, y, ROAD_LEFT, 16)
+      g.fillRect(ROAD_RIGHT, y, CANVAS_W - ROAD_RIGHT, 16)
     }
-
-    // Asphalt road
+    // Road surface
     g.fillStyle(C.asphalt, 1)
     g.fillRect(ROAD_LEFT, 0, ROAD_W, CANVAS_H)
-
-    // Subtle asphalt shading alternation
-    for (let y = 0; y < CANVAS_H; y += 60) {
-      g.fillStyle(C.asphaltShade, 0.18)
-      g.fillRect(ROAD_LEFT, y, ROAD_W, 30)
-    }
-
-    // White edge lines
-    g.fillStyle(C.edgeLine, 0.9)
-    g.fillRect(ROAD_LEFT, 0, 3, CANVAS_H)
-    g.fillRect(ROAD_RIGHT - 3, 0, 3, CANVAS_H)
+    // Asphalt texture
+    g.fillStyle(0x1a1a28, 0.35)
+    g.fillRect(ROAD_LEFT, 0, ROAD_W, CANVAS_H)
+    // Edge white lines
+    g.fillStyle(0xffffff, 0.8)
+    g.fillRect(ROAD_LEFT,    0, 3, CANVAS_H)
+    g.fillRect(ROAD_RIGHT-3, 0, 3, CANVAS_H)
   }
 
-  // ── Scrolling road dashes ─────────────────────────────────────────
+  // ── Dashed lane dividers ──────────────────────────────────────
 
-  private buildRoadStripes() {
-    const DASH_H = 28
-    const GAP = 38
-    const PERIOD = DASH_H + GAP
-    const count = Math.ceil(CANVAS_H / PERIOD) + 3
-
-    // 4 lane dividers
+  private buildDashes() {
+    const DASH_H = 28, GAP = 38, PERIOD = DASH_H + GAP
+    const total = Math.ceil(CANVAS_H / PERIOD) + 3
     for (let lane = 0; lane < LANE_COUNT - 1; lane++) {
       const x = ROAD_LEFT + (lane + 1) * LANE_W
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < total; i++) {
         const g = this.add.graphics()
-        g.fillStyle(C.laneDash, lane === 2 ? 0.55 : 0.22)  // centre line brighter
-        g.fillRect(-1, 0, 2, DASH_H)
-        g.x = x
+        g.fillStyle(C.laneDash, 0.25)
+        g.fillRect(x - 1, 0, 2, DASH_H)
         g.y = i * PERIOD - PERIOD
         this.dashMarks.push({ g, lane, y: g.y })
       }
     }
   }
 
-  // ── Scenery ───────────────────────────────────────────────────────
+  // ── Roadside scenery ──────────────────────────────────────────
 
   private buildScenery() {
-    const SIDE_W = ROAD_LEFT   // 105px each side
-    const total = 24           // 12 per side
-
-    for (let i = 0; i < total; i++) {
-      const side: 'left' | 'right' = i % 2 === 0 ? 'left' : 'right'
-      const seed = i * 137 + 1
-      const types: SceneryType[] = ['tree', 'tree', 'tree', 'building', 'lamp', 'barrier']
-      const type = types[Math.floor(this.seededRand(seed, 0) * types.length)]
-
-      let localX: number
-      if (type === 'lamp') localX = side === 'left' ? ROAD_LEFT - 14 : ROAD_RIGHT + 14
-      else if (type === 'barrier') localX = side === 'left' ? ROAD_LEFT - 8 : ROAD_RIGHT + 8
-      else localX = side === 'left'
-        ? 8 + this.seededRand(seed, 1) * (SIDE_W - 36)
-        : ROAD_RIGHT + 8 + this.seededRand(seed, 1) * (SIDE_W - 36)
-
-      const g = this.add.graphics()
-      this.drawScenery(g, type, seed)
-
-      const startY = (i / total) * CANVAS_H * 1.6 - CANVAS_H * 0.2
-      g.x = localX
-      g.y = startY
-
-      this.scenery.push({ g, type, side, localX, y: startY, seed })
+    for (let i = 0; i < 14; i++) {
+      this.spawnSceneryAt(i, -800 + i * 120)
     }
   }
 
-  private drawScenery(g: Phaser.GameObjects.Graphics, type: SceneryType, seed: number) {
-    g.clear()
-    const r1 = this.seededRand(seed, 2)
-    const r2 = this.seededRand(seed, 3)
-    const r3 = this.seededRand(seed, 4)
+  private spawnSceneryAt(seed: number, startY: number) {
+    const side = seed % 2 === 0 ? 'left' : 'right'
+    const type = Math.floor(this.seededRand(seed, 3) * 3)  // 0=tree,1=building,2=lamp
+    const g = this.add.graphics()
+    const cx = side === 'left'
+      ? ROAD_LEFT - 30 - this.seededRand(seed, 1) * 40
+      : ROAD_RIGHT + 30 + this.seededRand(seed, 2) * 40
 
-    if (type === 'tree') {
-      const radius = 14 + r1 * 8
-      // Trunk
-      g.fillStyle(C.treeTrunk, 1)
-      g.fillRect(-3, 0, 6, 10)
-      // Shadow layer
-      g.fillStyle(C.treeGreenDark, 1)
-      g.fillCircle(0, -radius * 0.6, radius)
-      // Main canopy
-      g.fillStyle(C.treeGreen, 1)
-      g.fillCircle(-r1 * 4 + 2, -radius * 0.7, radius * 0.85)
-      // Highlight
-      g.fillStyle(C.treeHighlight, 0.6)
-      g.fillCircle(-2, -radius * 0.85, radius * 0.55)
+    if (type === 0) this.drawTree(g, cx, 0, seed)
+    else if (type === 1) this.drawBuilding(g, cx, 0, seed)
+    else this.drawLamp(g, cx, 0)
 
-    } else if (type === 'building') {
-      const bw = 28 + Math.floor(r1 * 22)
-      const bh = 38 + Math.floor(r2 * 52)
-      const color = r3 > 0.5 ? C.buildingA : C.buildingB
-      // Body
-      g.fillStyle(color, 1)
-      g.fillRect(-bw / 2, -bh, bw, bh)
-      // Roof
-      g.fillStyle(C.buildingRoof, 1)
-      g.fillRect(-bw / 2, -bh, bw, 5)
-      // Windows grid
-      const cols = Math.max(1, Math.floor(bw / 10) - 1)
-      const rows = Math.max(1, Math.floor(bh / 13) - 1)
-      for (let row = 0; row < rows; row++) {
-        for (let col = 0; col < cols; col++) {
-          const wx = -bw / 2 + 5 + col * 10
-          const wy = -bh + 8 + row * 13
-          const lit = this.seededRand(seed + row * 10 + col, 5) > 0.35
-          g.fillStyle(lit ? C.window : C.windowOff, lit ? 0.85 : 0.5)
-          g.fillRect(wx, wy, 6, 8)
-        }
-      }
+    g.y = startY
+    this.scenery.push({ g, y: startY, side })
+  }
 
-    } else if (type === 'lamp') {
-      // Post
-      g.fillStyle(C.lamp, 1)
-      g.fillRect(-2, -46, 4, 46)
-      // Arm
-      g.fillRect(-2, -46, 18, 3)
-      // Lamp head
-      g.fillStyle(C.lamp, 1)
-      g.fillRect(12, -50, 10, 6)
-      // Glow
-      g.fillStyle(C.lampGlow, 0.9)
-      g.fillCircle(17, -47, 4)
-      g.fillStyle(C.lampGlow, 0.15)
-      g.fillCircle(17, -47, 14)
+  private drawTree(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const s = 0.7 + this.seededRand(seed, 7) * 0.6
+    g.fillStyle(0x5a3820, 1)
+    g.fillRect(x - 3 * s, y, 6 * s, 14 * s)
+    g.fillStyle(0x1e5a1e, 1)
+    g.fillCircle(x, y - 12 * s, 14 * s)
+    g.fillStyle(0x2e7a2e, 1)
+    g.fillCircle(x, y - 18 * s, 11 * s)
+    g.fillStyle(0x3d9e3d, 0.6)
+    g.fillCircle(x - 4 * s, y - 20 * s, 7 * s)
+  }
 
-    } else if (type === 'barrier') {
-      // Armco barrier blocks
-      for (let i = 0; i < 3; i++) {
-        const y = i * 18
-        g.fillStyle(i % 2 === 0 ? C.barrierStripe : C.barrier, 1)
-        g.fillRect(-6, y, 12, 16)
+  private drawBuilding(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const w = 28 + this.seededRand(seed, 4) * 18
+    const h = 40 + this.seededRand(seed, 5) * 30
+    g.fillStyle(0x1e1e3a, 1)
+    g.fillRect(x - w / 2, y - h, w, h)
+    g.fillStyle(0x151530, 1)
+    g.fillRect(x - w / 2, y - h, w, 4)
+    for (let wy = y - h + 8; wy < y - 4; wy += 10) {
+      for (let wx = x - w / 2 + 4; wx < x + w / 2 - 6; wx += 10) {
+        g.fillStyle(this.seededRand(seed, wy) > 0.5 ? 0xffee88 : 0x333355, 1)
+        g.fillRect(wx, wy, 6, 5)
       }
     }
   }
 
-  // ── Cars ──────────────────────────────────────────────────────────
-
-  private buildCars() {
-    // Player (index 0)
-    const pg = this.add.graphics()
-    this.carGfx.push(pg)
-    this.carLabels.push(
-      this.add.text(0, 0, 'YOU', { fontSize: '8px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5, 0.5)
-    )
-
-    // AI (indices 1-4)
-    const names = ['REX', 'ZARA', 'BOLT', 'NOVA']
-    for (let i = 0; i < 4; i++) {
-      const g = this.add.graphics()
-      this.carGfx.push(g)
-      this.carLabels.push(
-        this.add.text(0, 0, names[i], { fontSize: '7px', color: '#fff', fontStyle: 'bold' }).setOrigin(0.5, 0.5)
-      )
-    }
+  private drawLamp(g: Phaser.GameObjects.Graphics, x: number, y: number) {
+    g.fillStyle(0x9999aa, 1)
+    g.fillRect(x - 2, y - 28, 4, 28)
+    g.fillStyle(0xffffcc, 0.9)
+    g.fillCircle(x, y - 28, 5)
   }
 
-  private drawCar(
-    g: Phaser.GameObjects.Graphics,
-    x: number, y: number,
-    color: number,
-    isPlayer: boolean,
-    isBraking: boolean
-  ) {
-    g.clear()
-    const w = CAR_W + (isPlayer ? 4 : 0)
-    const h = CAR_H + (isPlayer ? 6 : 0)
-
-    // Drop shadow
-    g.fillStyle(0x000000, 0.4)
-    g.fillRoundedRect(x - w / 2 + 4, y - h / 2 + 5, w, h, 6)
-
-    // Body
-    g.fillStyle(color, 1)
-    g.fillRoundedRect(x - w / 2, y - h / 2, w, h, 6)
-
-    // Roof panel (darker centre stripe)
-    g.fillStyle(0x000000, 0.22)
-    g.fillRoundedRect(x - w / 2 + 5, y - h / 2 + 8, w - 10, h - 16, 3)
-
-    // Windshield (front, near top of car since it faces up)
-    g.fillStyle(0x99ccff, 0.7)
-    g.fillRoundedRect(x - w / 2 + 5, y - h / 2 + 5, w - 10, h * 0.28, 3)
-
-    // Rear window
-    g.fillStyle(0x99ccff, 0.4)
-    g.fillRoundedRect(x - w / 2 + 6, y + h / 2 - h * 0.24, w - 12, h * 0.18, 2)
-
-    // Wheels (top-down view — stick out from sides)
-    g.fillStyle(0x111111, 1)
-    const ww = 7, wh = 11
-    // front left / right
-    g.fillRoundedRect(x - w / 2 - 4, y - h / 2 + 7, ww, wh, 2)
-    g.fillRoundedRect(x + w / 2 - 3, y - h / 2 + 7, ww, wh, 2)
-    // rear left / right
-    g.fillRoundedRect(x - w / 2 - 4, y + h / 2 - 18, ww, wh, 2)
-    g.fillRoundedRect(x + w / 2 - 3, y + h / 2 - 18, ww, wh, 2)
-
-    // Headlights (front)
-    g.fillStyle(0xffffcc, 1)
-    g.fillCircle(x - w / 2 + 5, y - h / 2 + 3, 3)
-    g.fillCircle(x + w / 2 - 5, y - h / 2 + 3, 3)
-
-    // Tail lights (rear) — always dim red, bright when braking
-    g.fillStyle(0xcc2222, isBraking ? 1 : 0.5)
-    g.fillRect(x - w / 2 + 4, y + h / 2 - 4, 8, 3)
-    g.fillRect(x + w / 2 - 12, y + h / 2 - 4, 8, 3)
-  }
-
-  // ── Input ─────────────────────────────────────────────────────────
+  // ── Input ─────────────────────────────────────────────────────
 
   private setupKeys() {
-    this.input.keyboard!.on('keydown-LEFT',  () => this.changeLane(-1))
-    this.input.keyboard!.on('keydown-RIGHT', () => this.changeLane(1))
-    this.input.keyboard!.on('keydown-A',     () => this.changeLane(-1))
-    this.input.keyboard!.on('keydown-D',     () => this.changeLane(1))
-
-    // Held keys for boost / brake
     const kb = this.input.keyboard!
-    this.keyUp   = kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP)
-    this.keyDown = kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN)
-    this.keyW    = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W)
-    this.keyS    = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S)
+    this.keyLeft  = kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT)
+    this.keyRight = kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT)
+    this.keyA     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.A)
+    this.keyD     = kb.addKey(Phaser.Input.Keyboard.KeyCodes.D)
 
-    // Touch: tap left half = go left, right half = go right
+    // One-shot lane keys
+    kb.on('keydown-LEFT',  () => this.changeLane(-1))
+    kb.on('keydown-RIGHT', () => this.changeLane(1))
+    kb.on('keydown-A',     () => this.changeLane(-1))
+    kb.on('keydown-D',     () => this.changeLane(1))
+
+    // Touch: swipe left/right half
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       this.changeLane(p.x < CANVAS_W / 2 ? -1 : 1)
     })
   }
 
   private changeLane(dir: number) {
-    if (this.laneChangeCooldown > 0) return
+    if (this.laneChangeCooldown > 0 || this.spinDuration > 0) return
+    if (this.startDelayLeft > 0) return
     const next = Phaser.Math.Clamp(this.playerLane + dir, 0, LANE_COUNT - 1)
     if (next === this.playerLane) return
     this.playerLane = next
     raceBridge.playerLane = next
-    this.laneChangeCooldown = 280  // ms
+    this.laneChangeCooldown = 240
   }
 
-  // ── Update loop ───────────────────────────────────────────────────
+  // ── Spawn system ──────────────────────────────────────────────
 
-  update(_t: number, delta: number) {
-    const ds = delta / 1000
-    if (this.laneChangeCooldown > 0) this.laneChangeCooldown -= delta
-
-    // Smooth player X toward target lane
-    const targetX = this.laneToX(this.playerLane)
-    this.playerScreenX += (targetX - this.playerScreenX) * Math.min(1, ds * LANE_SNAP_SPEED)
-
-    // Manual boost / brake (held keys) — visual only, doesn't affect race distance
-    const boosting = this.keyUp?.isDown || this.keyW?.isDown
-    const braking  = this.keyDown?.isDown || this.keyS?.isDown
-    if (boosting && !raceBridge.isNitro) raceBridge.isNitro = true
-    if (!boosting && raceBridge.isNitro) raceBridge.isNitro = false
-    if (braking && !raceBridge.isBraking) raceBridge.isBraking = true
-    if (!braking && raceBridge.isBraking) raceBridge.isBraking = false
-
-    const speedFactor = boosting ? 1.35 : braking ? 0.55 : 1.0
-    const scrollSpeed = raceBridge.playerSpeed * MAX_SCROLL * speedFactor
-
-    this.scrollDashes(scrollSpeed, ds)
-    this.scrollScenery(scrollSpeed, ds)
-    this.renderCurb(scrollSpeed)
-    this.renderCars()
-    this.renderFx(delta)
+  private setupSpawnEvents() {
+    this.spawnTimer = 1800
   }
 
-  // ── Curb (animated red/white stripes) ────────────────────────────
+  private tickSpawner(delta: number) {
+    this.spawnTimer -= delta
+    if (this.spawnTimer > 0) return
+    const speedFactor = Math.min(1, this.gameSpeed / MAX_SPEED)
+    // Interval shrinks as speed increases: 2s → 0.9s
+    this.spawnTimer = Phaser.Math.Linear(2000, 900, speedFactor)
 
-  private curbOffset = 0
+    const roll = Math.random()
+    if (roll < 0.55) this.spawnTraffic()
+    else this.spawnPickup()
+  }
 
-  private renderCurb(scrollSpeed: number) {
-    // Recompute offset each frame (not accumulated — recalc from scrollOffset)
-    // We'll animate it by tracking a simple phase
-    // Called after update so we just use the current frame
-    this.curbGfx.clear()
+  private spawnTraffic() {
+    const lane = Math.floor(Math.random() * LANE_COUNT)
+    const roll = Math.random()
+    const type: TrafficType = roll < 0.65 ? 'slow' : roll < 0.88 ? 'oncoming' : 'truck'
+    const isTruck = type === 'truck'
+    // Avoid spawning truck if it would go off-road
+    const finalLane = isTruck && lane >= LANE_COUNT - 1 ? lane - 1 : lane
 
-    const STRIPE = 18
-    const count = Math.ceil(CANVAS_H / STRIPE) + 2
-    const phase = (Date.now() / 1000) * scrollSpeed % (STRIPE * 2)
+    const color = type === 'oncoming'
+      ? C.oncoming
+      : type === 'truck'
+      ? C.truck
+      : (C.trafficSlow[Math.floor(Math.random() * C.trafficSlow.length)] as number)
 
-    for (let i = 0; i < count; i++) {
-      const y = i * STRIPE - phase % (STRIPE * 2)
-      const isRed = Math.floor((i + Math.floor(phase / STRIPE)) % 2) === 0
+    const g = this.add.graphics()
+    const car: TrafficCar = { lane: finalLane, y: -80, type, color, g, width: isTruck ? 2 : 1 }
+    this.drawTrafficCar(car)
+    this.traffic.push(car)
+  }
 
-      // Left curb strip
-      this.curbGfx.fillStyle(isRed ? C.curbRed : C.curbWhite, 1)
-      this.curbGfx.fillRect(ROAD_LEFT - 8, y, 8, STRIPE)
+  private spawnPickup() {
+    const lane = Math.floor(Math.random() * LANE_COUNT)
+    const roll = Math.random()
+    const type: PickupType = roll < 0.45 ? 'coin' : roll < 0.65 ? 'fuel' : roll < 0.82 ? 'nitro' : 'oil'
+    const g = this.add.graphics()
+    const item: PickupItem = { lane, y: -60, type, g, collected: false }
+    this.drawPickup(item)
+    this.pickups.push(item)
+  }
 
-      // Right curb strip
-      this.curbGfx.fillStyle(isRed ? C.curbRed : C.curbWhite, 1)
-      this.curbGfx.fillRect(ROAD_RIGHT, y, 8, STRIPE)
+  // ── Traffic rendering ─────────────────────────────────────────
+
+  private drawTrafficCar(car: TrafficCar) {
+    const g = car.g
+    g.clear()
+    const lanes = car.width
+    const totalW = lanes * LANE_W
+    const cx = this.laneToX(car.lane) + (lanes - 1) * LANE_W / 2
+    const w = Math.min(CAR_W * lanes, totalW - 8)
+    const h = car.type === 'truck' ? CAR_H * 1.6 : CAR_H
+    const color = car.color
+    const y = car.y
+
+    // Shadow
+    g.fillStyle(0x000000, 0.25)
+    g.fillEllipse(cx + 3, y + 5, w + 6, h * 0.3)
+
+    // Body
+    g.fillStyle(color, 1)
+    g.fillRoundedRect(cx - w / 2, y - h / 2, w, h, { tl: 6, tr: 6, bl: 10, br: 10 })
+
+    // Roof
+    const rw = w * 0.58
+    g.fillStyle(0x000000, 0.35)
+    if (car.type === 'truck') {
+      g.fillRect(cx - rw / 2, y - h / 2 + 4, rw, h * 0.3)
+    } else {
+      g.fillRoundedRect(cx - rw / 2, y - h / 2 + h * 0.28, rw, h * 0.38, 4)
+    }
+
+    // Windshield
+    g.fillStyle(0x88ccff, 0.65)
+    g.fillRoundedRect(cx - w / 2 + 5, y - h / 2 + 4, w - 10, h * 0.19, 3)
+
+    // Wheels
+    const ww = 8, wh = 11
+    const fwy = y - h / 2 + 8, rwy = y + h / 2 - wh - 8
+    g.fillStyle(0x111111, 1)
+    g.fillRoundedRect(cx - w / 2 - 5, fwy, ww, wh, 2)
+    g.fillRoundedRect(cx + w / 2 - 3, fwy, ww, wh, 2)
+    g.fillRoundedRect(cx - w / 2 - 5, rwy, ww, wh, 2)
+    g.fillRoundedRect(cx + w / 2 - 3, rwy, ww, wh, 2)
+
+    // Tail lights (facing player = visible rear)
+    g.fillStyle(car.type === 'oncoming' ? 0xffcc44 : 0xcc0000, 0.9)
+    g.fillRect(cx - w / 2 + 3, y + h / 2 - 4, w - 6, 4)
+
+    // Headlights (oncoming = bright)
+    if (car.type === 'oncoming') {
+      g.fillStyle(0xffffff, 1)
+      g.fillRect(cx - w / 2 + 4, y - h / 2, 8, 4)
+      g.fillRect(cx + w / 2 - 12, y - h / 2, 8, 4)
     }
   }
 
-  private scrollDashes(speed: number, ds: number) {
-    const DASH_H = 28
-    const GAP = 38
-    const PERIOD = DASH_H + GAP
-    const total = Math.ceil(CANVAS_H / PERIOD) + 3
+  // ── Pickup rendering ──────────────────────────────────────────
 
+  private drawPickup(item: PickupItem) {
+    const g = item.g
+    g.clear()
+    const cx = this.laneToX(item.lane)
+    const cy = item.y
+    const t = Date.now() / 800  // bob animation phase
+
+    if (item.type === 'coin') {
+      g.fillStyle(C.coin, 1)
+      g.fillCircle(cx, cy, 10)
+      g.fillStyle(0xffee44, 0.5)
+      g.fillCircle(cx - 2, cy - 2, 5)
+      g.fillStyle(0xaa8800, 0.8)
+      g.fillRect(cx - 1, cy - 7, 2, 14)
+    } else if (item.type === 'fuel') {
+      g.fillStyle(C.fuel, 1)
+      g.fillRoundedRect(cx - 9, cy - 12, 18, 22, 4)
+      g.fillStyle(0x00aa33, 1)
+      g.fillRect(cx - 4, cy - 16, 8, 5)
+      g.fillStyle(0xffffff, 0.7)
+      g.fillRect(cx - 5, cy - 8, 4, 8)
+    } else if (item.type === 'nitro') {
+      g.fillStyle(C.nitro, 0.9)
+      g.fillTriangle(cx, cy - 14, cx - 10, cy + 10, cx + 10, cy + 10)
+      g.fillStyle(0xffffff, 0.6)
+      g.fillCircle(cx, cy - 2, 5)
+    } else {  // oil
+      g.fillStyle(C.oil, 0.85)
+      g.fillEllipse(cx, cy, 32, 16)
+      g.fillStyle(0x4400aa, 0.3)
+      g.fillEllipse(cx - 4, cy - 2, 14, 8)
+    }
+    g.y = Math.sin(t) * 3  // gentle bob
+  }
+
+  // ── Player car ────────────────────────────────────────────────
+
+  private drawPlayerCar(spin: number) {
+    const g = this.playerGfx
+    g.clear()
+    const x = this.playerScreenX
+    const y = PLAYER_Y
+    const color = raceBridge.playerColor || 0xff6b35
+    const bw = 30, bh = 52
+
+    g.save()
+    g.translateCanvas(x, y)
+    if (spin !== 0) {
+      g.rotateCanvas(spin)
+    }
+
+    // Shadow
+    g.fillStyle(0x000000, 0.3)
+    g.fillEllipse(3, 5, bw + 6, bh * 0.3)
+
+    // Body
+    g.fillStyle(color, 1)
+    g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, { tl: 6, tr: 6, bl: 10, br: 10 })
+
+    // Hood stripe
+    g.fillStyle(0xffffff, 0.08)
+    g.fillRoundedRect(-bw / 2 + 2, -bh / 2, bw - 4, bh * 0.32, { tl: 6, tr: 6, bl: 0, br: 0 })
+
+    // Roof
+    const rw = bw * 0.60, rh = bh * 0.42
+    g.fillStyle(0x000000, 0.4)
+    g.fillRoundedRect(-rw / 2, -bh / 2 + bh * 0.28, rw, rh, 4)
+
+    // Windshield
+    g.fillStyle(0x88ccff, 0.75)
+    g.fillRoundedRect(-bw / 2 + 5, -bh / 2 + 4, bw - 10, bh * 0.21, 3)
+
+    // Rear window
+    g.fillStyle(0x88ccff, 0.45)
+    g.fillRoundedRect(-bw / 2 + 7, bh / 2 - bh * 0.26, bw - 14, bh * 0.16, 2)
+
+    // Wheels
+    const ww = 8, wh = 13
+    const fwy = -bh / 2 + 8, rwy = bh / 2 - wh - 8
+    g.fillStyle(0x111111, 1)
+    g.fillRoundedRect(-bw / 2 - 5, fwy, ww, wh, 2)
+    g.fillRoundedRect(bw / 2 - 3, fwy, ww, wh, 2)
+    g.fillRoundedRect(-bw / 2 - 5, rwy, ww, wh, 2)
+    g.fillRoundedRect(bw / 2 - 3, rwy, ww, wh, 2)
+    g.fillStyle(0x999999, 1)
+    g.fillRect(-bw / 2 - 3, fwy + 3, ww - 4, wh - 6)
+    g.fillRect(bw / 2 - 1, fwy + 3, ww - 4, wh - 6)
+    g.fillRect(-bw / 2 - 3, rwy + 3, ww - 4, wh - 6)
+    g.fillRect(bw / 2 - 1, rwy + 3, ww - 4, wh - 6)
+
+    // Grille
+    g.fillStyle(0x111111, 0.9)
+    g.fillRect(-bw / 2 + 4, -bh / 2, bw - 8, 4)
+
+    // Headlights
+    g.fillStyle(0xffffff, 1)
+    g.fillRect(-bw / 2 + 4, -bh / 2, 8, 4)
+    g.fillRect(bw / 2 - 12, -bh / 2, 8, 4)
+    g.fillStyle(0xffffaa, 0.9)
+    g.fillRect(-bw / 2 + 6, -bh / 2 + 1, 4, 2)
+    g.fillRect(bw / 2 - 10, -bh / 2 + 1, 4, 2)
+
+    // Tail lights
+    const braking = this.gameSpeed < BASE_SPEED * 0.6
+    g.fillStyle(0xcc0000, braking ? 1.0 : 0.35)
+    g.fillRect(-bw / 2 + 3, bh / 2 - 4, bw - 6, 4)
+
+    // Spoiler
+    g.fillStyle(0x222222, 1)
+    g.fillRect(-bw / 2, bh / 2, bw, 4)
+    g.fillRect(-bw / 2, bh / 2 + 1, 5, 6)
+    g.fillRect(bw / 2 - 5, bh / 2 + 1, 5, 6)
+
+    // Nitro flame
+    if (this.nitroTimer > 0) {
+      g.fillStyle(C.nitroFlame, 0.9)
+      g.fillTriangle(-6, bh / 2 + 8, 0, bh / 2 + 22, 6, bh / 2 + 8)
+      g.fillStyle(0xffffff, 0.6)
+      g.fillTriangle(-3, bh / 2 + 8, 0, bh / 2 + 16, 3, bh / 2 + 8)
+    }
+
+    g.restore()
+  }
+
+  // ── Curb ─────────────────────────────────────────────────────
+
+  private renderCurb(speed: number) {
+    this.curbGfx.clear()
+    const STRIPE = 18
+    const count  = Math.ceil(CANVAS_H / STRIPE) + 2
+    const phase  = (Date.now() / 1000) * speed % (STRIPE * 2)
+    for (let i = 0; i < count; i++) {
+      const y      = i * STRIPE - phase % (STRIPE * 2)
+      const isRed  = Math.floor((i + Math.floor(phase / STRIPE)) % 2) === 0
+      this.curbGfx.fillStyle(isRed ? C.curbRed : C.curbWhite, 1)
+      this.curbGfx.fillRect(ROAD_LEFT - 8,  y, 8, STRIPE)
+      this.curbGfx.fillRect(ROAD_RIGHT,     y, 8, STRIPE)
+    }
+  }
+
+  // ── HUD (on canvas) ───────────────────────────────────────────
+
+  private renderHUD() {
+    const g = this.hudGfx
+    g.clear()
+
+    // Fuel bar background
+    const barX = 12, barY = CANVAS_H - 22, barW = 120, barH = 12
+    g.fillStyle(0x000000, 0.55)
+    g.fillRoundedRect(barX - 2, barY - 2, barW + 4, barH + 4, 4)
+    // Fuel fill
+    const pct = Math.max(0, raceBridge.fuelLevel)
+    const fuelColor = pct > 0.5 ? C.fuel : pct > 0.25 ? 0xffcc00 : 0xff3300
+    g.fillStyle(fuelColor, 1)
+    g.fillRoundedRect(barX, barY, barW * pct, barH, 3)
+    // Fuel segments
+    g.lineStyle(1, 0x000000, 0.3)
+    for (let i = 1; i < 4; i++) {
+      g.strokeRect(barX + barW * i / 4, barY, 1, barH)
+    }
+
+    // Score
+    const scoreStr = `${Math.round(this.score)}`
+    const scoreX = CANVAS_W - 12 - scoreStr.length * 9
+    g.fillStyle(0x000000, 0.5)
+    g.fillRoundedRect(scoreX - 6, CANVAS_H - 24, scoreStr.length * 9 + 12, 18, 4)
+    this.hudGfx.setDepth(10)
+  }
+
+  // ── Score float text ──────────────────────────────────────────
+
+  private addScoreFloat(x: number, y: number, text: string, color = '#ffffff') {
+    const t = this.add.text(x, y, text, { fontSize: '14px', color, fontStyle: 'bold' }).setOrigin(0.5)
+    this.scoreFloats.push({ x, y, text: t, life: 1200 })
+  }
+
+  // ── Collision detection ───────────────────────────────────────
+
+  private checkCollisions() {
+    if (this.invincible > 0 || this.spinDuration > 0 || this.gameOverFlag) return
+
+    const px = this.playerScreenX
+    const py = PLAYER_Y
+
+    for (const car of this.traffic) {
+      const cx = this.laneToX(car.lane) + (car.width - 1) * LANE_W / 2
+      const cy = car.y
+      const halfW = (car.width * LANE_W) * 0.45
+      const halfH = (car.type === 'truck' ? CAR_H * 1.6 : CAR_H) * 0.5
+
+      if (Math.abs(cx - px) < halfW + CAR_W * 0.45 &&
+          Math.abs(cy - py) < halfH + CAR_H * 0.5) {
+        this.triggerCrash(car.type === 'oncoming' ? 'hard' : 'soft')
+        break
+      }
+    }
+  }
+
+  private checkPickups() {
+    const px = this.playerScreenX
+    const py = PLAYER_Y
+
+    for (const item of this.pickups) {
+      if (item.collected) continue
+      const cx = this.laneToX(item.lane)
+      if (Math.abs(cx - px) < LANE_W * 0.6 && Math.abs(item.y - py) < 28) {
+        item.collected = true
+        item.g.destroy()
+        this.applyPickup(item.type, cx, item.y)
+      }
+    }
+    this.pickups = this.pickups.filter(p => !p.collected && p.y < CANVAS_H + 80)
+  }
+
+  private applyPickup(type: PickupType, x: number, y: number) {
+    switch (type) {
+      case 'coin':
+        this.score += 50
+        this.addScoreFloat(x, y, '+50', '#ffd700')
+        raceBridge.onCoinCollected?.()
+        break
+      case 'fuel':
+        raceBridge.fuelLevel = Math.min(1, raceBridge.fuelLevel + 0.28)
+        this.addScoreFloat(x, y, 'FUEL!', '#22cc44')
+        raceBridge.onFuelCollected?.()
+        break
+      case 'nitro':
+        this.nitroTimer = 3000
+        this.addScoreFloat(x, y, 'NITRO!', '#00ccff')
+        raceBridge.onNitroCollected?.()
+        break
+      case 'oil':
+        this.triggerCrash('oil')
+        this.addScoreFloat(x, y, 'OIL!', '#884488')
+        break
+    }
+  }
+
+  private triggerCrash(severity: 'soft' | 'hard' | 'oil') {
+    const spinMs  = severity === 'hard' ? 1000 : severity === 'oil' ? 800 : 500
+    const penalty = severity === 'hard' ? CRASH_PENALTY * 1.5 : CRASH_PENALTY
+    this.spinDuration    = spinMs
+    this.invincible      = spinMs + 500
+    this.crashRecoverT   = 0
+    this.gameSpeed       = Math.max(40, this.gameSpeed - penalty)
+    this.fuel            = Math.max(0, this.fuel - (severity === 'hard' ? 0.06 : 0.03))
+
+    // Camera shake & screen flash
+    this.cameras.main.shake(spinMs * 0.4, severity === 'hard' ? 0.018 : 0.010)
+    this.cameras.main.flash(180, 255, severity === 'hard' ? 100 : 20, 20, true)
+
+    // Sparks
+    const sparks = severity === 'hard' ? 14 : 7
+    for (let i = 0; i < sparks; i++) {
+      this.particles.push({
+        x: this.playerScreenX, y: PLAYER_Y,
+        vx: (Math.random() - 0.5) * 200, vy: (Math.random() - 0.5) * 200,
+        alpha: 1, r: 3 + Math.random() * 3,
+        color: i % 2 === 0 ? C.sparkRed : C.sparkWhite,
+      })
+    }
+
+    raceBridge.onCrash?.()
+  }
+
+  // ── Scrolling helpers ─────────────────────────────────────────
+
+  private scrollDashes(speed: number, ds: number) {
+    const DASH_H = 28, GAP = 38, PERIOD = DASH_H + GAP
     for (const m of this.dashMarks) {
       m.y += speed * ds
       m.g.y = m.y
-      if (m.y > CANVAS_H + DASH_H) {
-        m.y -= total * PERIOD
+      if (m.y > CANVAS_H + PERIOD) {
+        m.y -= (Math.ceil(CANVAS_H / PERIOD) + 3) * PERIOD
         m.g.y = m.y
       }
     }
@@ -461,89 +682,176 @@ export class RaceScene extends Phaser.Scene {
     for (const obj of this.scenery) {
       obj.y += speed * ds
       obj.g.y = obj.y
-      if (obj.y > CANVAS_H + 80) {
-        obj.y = -80 - Math.random() * 120
+      if (obj.y > CANVAS_H + 100) {
+        obj.y = -120 - Math.random() * 80
         obj.g.y = obj.y
       }
     }
   }
 
-  // ── Car rendering ─────────────────────────────────────────────────
+  private scrollTraffic(speed: number, ds: number) {
+    for (const car of this.traffic) {
+      const relSpeed = car.type === 'oncoming'
+        ? speed * 1.6          // oncoming comes faster
+        : car.type === 'truck'
+        ? speed * 0.35         // trucks are slow
+        : speed * 0.45         // slow traffic
+      car.y += relSpeed * ds
 
-  private readonly AI_LANES = [0, 1, 3, 4]
-
-  private renderCars() {
-    const bridge = raceBridge
-
-    // Draw AI cars first (player draws on top)
-    bridge.aiVehicles.forEach((ai, i) => {
-      const g = this.carGfx[i + 1]
-      const label = this.carLabels[i + 1]
-      if (!g) return
-
-      const ax = this.laneToX(this.AI_LANES[i] ?? i)
-      const distDiff = ai.distance - bridge.playerDistance
-      const ay = PLAYER_Y - distDiff * PX_PER_M
-
-      if (ay < -60 || ay > CANVAS_H + 60) {
-        g.clear()
-        label?.setVisible(false)
-        return
-      }
-
-      label?.setVisible(true)
-      this.drawCar(g, ax, ay, ai.color, false, false)
-      label?.setPosition(ax, ay)
+      // Redraw at new position
+      const cx = this.laneToX(car.lane)
+      car.g.y = car.y - car.y  // reset graphics offset, redraw absolute
+      this.drawTrafficCar(car)
+    }
+    // Remove off-screen
+    this.traffic = this.traffic.filter(c => {
+      if (c.y > CANVAS_H + 100) { c.g.destroy(); return false }
+      return true
     })
+  }
 
-    // Draw player
-    const color = bridge.isStalled
-      ? C.stall
-      : bridge.isNitro
-      ? C.nitroFlame
-      : C.player
-
-    this.drawCar(this.carGfx[0], this.playerScreenX, PLAYER_Y, color, true, bridge.isBraking)
-    this.carLabels[0]?.setPosition(this.playerScreenX, PLAYER_Y)
-
-    // Nitro particle spawn
-    if (bridge.isNitro && Math.random() < 0.6) {
-      this.particles.push({
-        x: this.playerScreenX + (Math.random() - 0.5) * CAR_W,
-        y: PLAYER_Y + CAR_H / 2 + 4,
-        vy: 80 + Math.random() * 120,
-        alpha: 1,
-        r: 3 + Math.random() * 3,
-      })
+  private scrollPickups(speed: number, ds: number) {
+    for (const item of this.pickups) {
+      item.y += speed * ds
+      item.g.y = item.y
+      this.drawPickup(item)  // redraw for bob animation
     }
   }
 
-  // ── Nitro FX ─────────────────────────────────────────────────────
+  // ── Particles ─────────────────────────────────────────────────
 
-  private renderFx(delta: number) {
+  private updateParticles(ds: number) {
     this.fxGfx.clear()
+    this.particles = this.particles.filter(p => {
+      p.x += p.vx * ds
+      p.y += p.vy * ds
+      p.vy += 200 * ds   // gravity
+      p.alpha -= ds * 2
+      if (p.alpha <= 0) return false
+      this.fxGfx.fillStyle(p.color, p.alpha)
+      this.fxGfx.fillCircle(p.x, p.y, p.r * p.alpha)
+      return true
+    })
+  }
 
-    this.particles = this.particles.filter(p => p.alpha > 0.02)
-    for (const p of this.particles) {
-      p.y += p.vy * (delta / 1000)
-      p.alpha -= delta / 400
-      p.r *= 0.98
-      this.fxGfx.fillStyle(0x00ddff, Math.max(0, p.alpha))
-      this.fxGfx.fillCircle(p.x, p.y, p.r)
+  // ── Score floats ──────────────────────────────────────────────
+
+  private updateScoreFloats(ds: number) {
+    this.scoreFloats = this.scoreFloats.filter(sf => {
+      sf.life -= ds * 1000
+      sf.y -= 30 * ds
+      sf.text.setPosition(sf.x, sf.y)
+      sf.text.setAlpha(sf.life / 1200)
+      if (sf.life <= 0) { sf.text.destroy(); return false }
+      return true
+    })
+  }
+
+  // ── Main update ───────────────────────────────────────────────
+
+  update(_t: number, delta: number) {
+    if (this.gameOverFlag) return
+    const ds = delta / 1000
+    this.elapsedS += ds
+
+    // ── Start delay ──
+    if (this.startDelayLeft > 0) {
+      this.startDelayLeft -= delta
+      // Scroll road slowly to show alive, but player is frozen
+      const idleSpeed = 60
+      this.scrollDashes(idleSpeed, ds)
+      this.scrollScenery(idleSpeed, ds)
+      this.renderCurb(idleSpeed)
+      this.drawPlayerCar(0)
+      this.renderHUD()
+      return
+    }
+    this.raceStarted = true
+
+    // ── Game speed ramp ──
+    const speedTarget = Math.min(
+      MAX_SPEED,
+      BASE_SPEED + Math.floor(this.elapsedS / 30) * SPEED_RAMP,
+    )
+    const nitroSpeed = this.nitroTimer > 0 ? NITRO_BOOST : 0
+    // Crash recovery: speed ramps back up over CRASH_RECOVER seconds
+    if (this.crashRecoverT < CRASH_RECOVER && this.spinDuration <= 0) {
+      this.crashRecoverT += ds
+    }
+    const crashFactor = this.spinDuration > 0
+      ? 0.15
+      : Math.min(1, this.crashRecoverT / CRASH_RECOVER)
+    this.gameSpeed = Phaser.Math.Linear(
+      this.gameSpeed,
+      (speedTarget + nitroSpeed) * crashFactor,
+      ds * 3,
+    )
+
+    // ── Cooldowns ──
+    if (this.laneChangeCooldown > 0) this.laneChangeCooldown -= delta
+    if (this.invincible > 0)         this.invincible -= delta
+    if (this.nitroTimer > 0)         this.nitroTimer -= delta
+    if (this.spinDuration > 0) {
+      this.spinDuration -= delta
+      this.spinAngle += ds * Math.PI * 4
+    } else {
+      this.spinAngle = 0
     }
 
-    if (raceBridge.isNitro) {
-      this.fxGfx.fillStyle(0x00ffff, 0.07)
-      this.fxGfx.fillCircle(this.playerScreenX, PLAYER_Y, 55)
+    // ── Smooth lane ──
+    const targetX = this.laneToX(this.playerLane)
+    this.playerScreenX += (targetX - this.playerScreenX) * Math.min(1, ds * 12)
+
+    // ── Fuel drain ──
+    const fuelDrain = (0.0012 + this.gameSpeed / MAX_SPEED * 0.002) * ds
+    this.fuel = Math.max(0, this.fuel - fuelDrain)
+    raceBridge.fuelLevel = this.fuel
+    if (this.fuel <= 0) {
+      this.gameSpeed = Math.max(0, this.gameSpeed - 80 * ds)
+      if (this.gameSpeed < 5) {
+        this.gameOverFlag = true
+        raceBridge.gameOver = true
+        return
+      }
     }
 
-    if (raceBridge.isStalled) {
-      this.fxGfx.lineStyle(2, 0xff4444, 0.5)
-      this.fxGfx.strokeCircle(this.playerScreenX, PLAYER_Y, 30 + Math.sin(Date.now() / 120) * 8)
-    }
+    // ── Distance & score ──
+    const metersPerPx = 0.05
+    this.distance += this.gameSpeed * ds * metersPerPx
+    this.score    += this.gameSpeed * ds * 0.4   // base score from driving
+    raceBridge.distanceTraveled = this.distance
+    raceBridge.raceScore        = Math.round(this.score)
+
+    // ── Spawner ──
+    this.tickSpawner(delta)
+
+    // ── Render road ──
+    this.scrollDashes(this.gameSpeed, ds)
+    this.scrollScenery(this.gameSpeed, ds)
+    this.renderCurb(this.gameSpeed)
+
+    // ── Traffic & pickups ──
+    this.scrollTraffic(this.gameSpeed, ds)
+    this.scrollPickups(this.gameSpeed, ds)
+
+    // ── Collisions ──
+    this.checkCollisions()
+    this.checkPickups()
+
+    // ── Player ──
+    const spinRad = this.spinDuration > 0 ? this.spinAngle : 0
+    this.drawPlayerCar(spinRad)
+
+    // ── Particles & floats ──
+    this.updateParticles(ds)
+    this.updateScoreFloats(ds)
+
+    // ── HUD ──
+    this.renderHUD()
   }
 }
 
+// ── Phaser game config ─────────────────────────────────────────
 export const PHASER_CONFIG = (parent: string): Phaser.Types.Core.GameConfig => ({
   type: Phaser.AUTO,
   width: CANVAS_W,
@@ -552,7 +860,9 @@ export const PHASER_CONFIG = (parent: string): Phaser.Types.Core.GameConfig => (
   parent,
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
+    width: CANVAS_W,
+    height: CANVAS_H,
   },
   scene: [RaceScene],
   audio: { disableWebAudio: false },
