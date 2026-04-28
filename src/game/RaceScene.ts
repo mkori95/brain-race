@@ -24,8 +24,8 @@ const CRASH_PENALTY = 180
 const CRASH_RECOVER = 2.5
 
 // ── Car dims ───────────────────────────────────────────────────
-const CAR_W = 28
-const CAR_H = 48
+const CAR_W = 20
+const CAR_H = 34
 
 // ── Colours ────────────────────────────────────────────────────
 const C = {
@@ -488,28 +488,28 @@ export default class RaceScene extends Phaser.Scene {
     g.fillRect(cx - w/2 + 4, y + h/2 - 5, 10, 4)
     g.fillRect(cx + w/2 - 14, y + h/2 - 5, 10, 4)
     // 6 wheels
-    const ww = 10, wh = 12
+    const ww = 7, wh = 9
     g.fillStyle(0x111111, 1)
-    for (const wx of [cx - w/2 - 4, cx + w/2 - 6]) {
-      g.fillRoundedRect(wx, y - h/2 + 6, ww, wh, 2)
+    for (const wx of [cx - w/2 - 3, cx + w/2 - 4]) {
+      g.fillRoundedRect(wx, y - h/2 + 4, ww, wh, 2)
       g.fillRoundedRect(wx, y, ww, wh, 2)
-      g.fillRoundedRect(wx, y + h/2 - wh - 5, ww, wh, 2)
+      g.fillRoundedRect(wx, y + h/2 - wh - 4, ww, wh, 2)
     }
   }
 
   private drawWheels(g: Phaser.GameObjects.Graphics, cx: number, y: number, w: number, h: number) {
-    const ww = 8, wh = 12
-    const fy = y - h/2 + 6, ry = y + h/2 - wh - 6
+    const ww = 6, wh = 9
+    const fy = y - h/2 + 4, ry = y + h/2 - wh - 4
     g.fillStyle(0x111111, 1)
-    for (const wx of [cx - w/2 - 5, cx + w/2 - 3]) {
+    for (const wx of [cx - w/2 - 4, cx + w/2 - 2]) {
       g.fillRoundedRect(wx, fy, ww, wh, 2)
       g.fillRoundedRect(wx, ry, ww, wh, 2)
     }
     g.fillStyle(0x888888, 1)
-    g.fillRect(cx - w/2 - 3, fy + 3, 4, wh - 6)
-    g.fillRect(cx + w/2 - 1, fy + 3, 4, wh - 6)
-    g.fillRect(cx - w/2 - 3, ry + 3, 4, wh - 6)
-    g.fillRect(cx + w/2 - 1, ry + 3, 4, wh - 6)
+    g.fillRect(cx - w/2 - 2, fy + 2, 3, wh - 4)
+    g.fillRect(cx + w/2,     fy + 2, 3, wh - 4)
+    g.fillRect(cx - w/2 - 2, ry + 2, 3, wh - 4)
+    g.fillRect(cx + w/2,     ry + 2, 3, wh - 4)
   }
 
   // ── Pickup rendering ────────────────────────────────────────
@@ -545,7 +545,7 @@ export default class RaceScene extends Phaser.Scene {
     g.clear()
     const x = this.playerScreenX, y = PLAYER_Y
     const color = raceBridge.playerColor || 0xff6b35
-    const bw = 30, bh = 52
+    const bw = 24, bh = 42
 
     g.save()
     g.translateCanvas(x, y)
@@ -816,12 +816,15 @@ export default class RaceScene extends Phaser.Scene {
   private checkCollisions() {
     if (this.invincible > 0 || this.spinDuration > 0 || this.gameOverFlag) return
     const px = this.playerScreenX, py = PLAYER_Y
-    for (const car of this.traffic) {
+    for (let i = 0; i < this.traffic.length; i++) {
+      const car = this.traffic[i]
       const cx = this.laneToX(car.lane) + (car.width - 1) * LANE_W / 2
-      const halfW = (car.width * LANE_W) * 0.45
-      const halfH = (car.type === 'truck' ? CAR_H * 1.6 : CAR_H) * 0.5
-      if (Math.abs(cx - px) < halfW + CAR_W * 0.45 && Math.abs(car.y - py) < halfH + CAR_H * 0.5) {
+      const halfW = (car.width * LANE_W) * 0.42
+      const halfH = (car.type === 'truck' ? CAR_H * 1.6 : CAR_H) * 0.48
+      if (Math.abs(cx - px) < halfW + CAR_W * 0.42 && Math.abs(car.y - py) < halfH + CAR_H * 0.45) {
         this.triggerCrash(car.type === 'oncoming' ? 'hard' : 'soft')
+        car.g.destroy()
+        this.traffic.splice(i, 1)
         break
       }
     }

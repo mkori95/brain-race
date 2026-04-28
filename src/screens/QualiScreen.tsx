@@ -81,6 +81,8 @@ export default function QualiScreen() {
   const [chosen, setChosen] = useState<string | null>(null)
   const [showConfetti, setShowConfetti] = useState(false)
   const timerRef = useRef<number | null>(null)
+  // Pending answer: stored locally so store update is deferred until after feedback animation
+  const pendingRef = useRef<{ option: string | null; spent: number } | null>(null)
   const questionIdx = qualiAnswers.length
 
   useEffect(() => { prepareQualifier() }, [prepareQualifier])
@@ -93,7 +95,7 @@ export default function QualiScreen() {
       setTimeMs(prev => {
         if (prev <= TICK_MS) {
           clearInterval(timerRef.current!)
-          submitQualiAnswer(null, QUESTION_TIME_MS)
+          pendingRef.current = { option: null, spent: QUESTION_TIME_MS }
           setChosen('__timeout__')
           return 0
         }
@@ -105,13 +107,18 @@ export default function QualiScreen() {
 
   useEffect(() => {
     if (chosen === null) return
-    const allAnswered = questionIdx >= qualiQuestions.length - 1
+    // questionIdx is still the *current* index because submitQualiAnswer hasn't been called yet
+    const isLast = questionIdx >= qualiQuestions.length - 1
     const t = window.setTimeout(() => {
+      if (pendingRef.current) {
+        submitQualiAnswer(pendingRef.current.option, pendingRef.current.spent)
+        pendingRef.current = null
+      }
       setChosen(null)
-      if (allAnswered) finalizeQualifier()
-    }, 850)
+      if (isLast) finalizeQualifier()
+    }, 900)
     return () => clearTimeout(t)
-  }, [chosen, questionIdx, qualiQuestions.length, finalizeQualifier])
+  }, [chosen, questionIdx, qualiQuestions.length, submitQualiAnswer, finalizeQualifier])
 
   // Confetti when result appears and P1
   useEffect(() => {
@@ -125,9 +132,9 @@ export default function QualiScreen() {
   const handleAnswer = useCallback((option: string) => {
     if (chosen !== null) return
     clearInterval(timerRef.current!)
-    submitQualiAnswer(option, QUESTION_TIME_MS - timeMs)
+    pendingRef.current = { option, spent: QUESTION_TIME_MS - timeMs }
     setChosen(option)
-  }, [chosen, timeMs, submitQualiAnswer])
+  }, [chosen, timeMs])
 
   const handleGoToRace = () => { startCountdown(); navigate('/race') }
 
@@ -262,28 +269,53 @@ export default function QualiScreen() {
           const isChosen = chosen === opt
           const isTimeout = chosen === '__timeout__'
           const isCorrect = opt === question.correct
-          let extra = {}
-          if (chosen !== null) {
-            if (isCorrect)              extra = { borderColor:'var(--success)', background:'rgba(34,197,94,0.15)' }
-            else if (isChosen)          extra = { borderColor:'var(--error)',   background:'rgba(239,68,68,0.12)' }
+          const revealed = chosen !== null
+
+          let borderColor = 'var(--border)'
+          let bg = 'var(--surface)'
+          let anim = `slideUp 0.2s ${i * 0.05}s both`
+          let keyBg = 'var(--border)'
+          let keyColor = 'var(--text)'
+          let icon: React.ReactNode = null
+
+          if (revealed) {
+            if (isCorrect) {
+              borderColor = 'var(--success)'
+              bg = 'rgba(34,197,94,0.18)'
+              anim = 'scorePop 0.35s ease both'
+              keyBg = 'var(--success)'
+              keyColor = '#fff'
+              icon = <span style={{ fontSize:20, lineHeight:1 }}>✅</span>
+            } else if (isChosen) {
+              borderColor = 'var(--error)'
+              bg = 'rgba(239,68,68,0.15)'
+              anim = 'shake 0.35s ease'
+              keyBg = 'var(--error)'
+              keyColor = '#fff'
+              icon = <span style={{ fontSize:20, lineHeight:1 }}>❌</span>
+            } else if (isTimeout && isCorrect) {
+              icon = <span style={{ fontSize:14, color:'var(--text-muted)' }}>←</span>
+            }
           }
+
           return (
             <button
               key={i}
               className="answer-btn"
               onClick={() => handleAnswer(opt)}
-              disabled={chosen !== null}
+              disabled={revealed}
               style={{
-                opacity: chosen !== null && !isCorrect && !isChosen ? 0.45 : 1,
-                animation:`slideUp 0.2s ${i * 0.05}s both`,
-                ...extra,
+                opacity: revealed && !isCorrect && !isChosen ? 0.38 : 1,
+                animation: anim,
+                borderColor, background: bg,
+                transition: revealed ? 'none' : 'all 0.12s',
               }}
             >
-              <span className="answer-key">{OPTION_KEYS[i]}</span>
+              <span className="answer-key" style={{ background: keyBg, color: keyColor, transition:'background 0.2s' }}>
+                {OPTION_KEYS[i]}
+              </span>
               <span style={{ flex:1, textAlign:'left' }}>{opt}</span>
-              {chosen !== null && isCorrect && <span>✅</span>}
-              {isChosen && !isCorrect && <span>❌</span>}
-              {isTimeout && isCorrect && <span style={{ color:'var(--text-muted)' }}>←</span>}
+              {icon}
             </button>
           )
         })}
