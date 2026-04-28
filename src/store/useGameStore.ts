@@ -178,16 +178,29 @@ const useGameStore = create<GameStore>((set, get) => ({
   },
 
   endRace: () => {
-    const { user, selectedVehicleId, gridPosition, qualiScore } = get()
+    const { user, selectedVehicleId, gridPosition, qualiScore, raceTopicOverride } = get()
     const score = raceBridge.raceScore
     const distance = raceBridge.distanceTraveled
 
-    // Position is determined by distance (Phaser tracks ghost AIs)
-    // Simple approximation for now: based on grid + score performance
     const position = Math.max(1, gridPosition)
 
-    const coinsEarned = 50 + Math.floor(score / 100) + (position === 1 ? 150 : 0)
-    const xpEarned = 50 + (position === 1 ? 200 : 0) + qualiScore * 20
+    // Daily challenge: increment streak if this was a topic-override race
+    const todayStr = new Date().toISOString().split('T')[0]
+    const yesterdayStr = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0] })()
+    const isDaily = raceTopicOverride !== null
+    let streakBonus = 0
+    let newStreak = user?.progress.dailyChallenge?.streak ?? 0
+    if (isDaily && user) {
+      const last = user.progress.dailyChallenge?.lastCompleted ?? ''
+      if (last !== todayStr) {
+        // Only count consecutive days
+        newStreak = last === yesterdayStr ? newStreak + 1 : 1
+        streakBonus = 300 + Math.min(newStreak - 1, 10) * 20  // base 300 + 20 per day up to day 10
+      }
+    }
+
+    const coinsEarned = 50 + Math.floor(score / 100) + (position === 1 ? 150 : 0) + streakBonus
+    const xpEarned = 50 + (position === 1 ? 200 : 0) + qualiScore * 20 + (isDaily ? 100 : 0)
 
     const result: RaceResult = {
       position,
@@ -198,6 +211,8 @@ const useGameStore = create<GameStore>((set, get) => ({
       distanceTraveled: distance,
       qualiScore,
       gridPosition,
+      isDaily,
+      newStreak: isDaily ? newStreak : undefined,
     }
 
     set({ raceStatus: 'ended', raceResult: result })
@@ -205,7 +220,16 @@ const useGameStore = create<GameStore>((set, get) => ({
     if (user) {
       const newXp = (user.progress.xp ?? 0) + xpEarned
       const newLevel = getLevel(newXp)
-      updateProgress(user.uid, { xp: newXp, level: newLevel }).catch(console.error)
+      // Persist streak update if daily race
+      const progressUpdates: Partial<import('@/types').PlayerProgress> = { xp: newXp, level: newLevel }
+      if (isDaily) {
+        const last = user.progress.dailyChallenge?.lastCompleted ?? ''
+        if (last !== todayStr) {
+          progressUpdates.dailyChallenge = { lastCompleted: todayStr, streak: newStreak }
+          set({ user: { ...user, progress: { ...user.progress, ...progressUpdates } } })
+        }
+      }
+      updateProgress(user.uid, progressUpdates).catch(console.error)
 
       getCurrentIdToken().then((token) => {
         if (!token) return

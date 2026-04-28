@@ -1,5 +1,9 @@
 import Phaser from 'phaser'
 import { raceBridge } from './raceBridge'
+import {
+  resumeAudio, startEngine, updateEngineSpeed, stopEngine,
+  playCoin, playFuel, playNitro, playCrash, playOilSkid,
+} from './audioEngine'
 
 // ── Canvas & road ──────────────────────────────────────────────
 const CANVAS_W   = 480
@@ -80,11 +84,16 @@ interface CityBuilding { g: Phaser.GameObjects.Graphics; y: number; side: 'left'
 // ── Scene ──────────────────────────────────────────────────────
 export default class RaceScene extends Phaser.Scene {
 
-  private bgGfx!:     Phaser.GameObjects.Graphics
-  private curbGfx!:   Phaser.GameObjects.Graphics
-  private fxGfx!:     Phaser.GameObjects.Graphics
-  private playerGfx!: Phaser.GameObjects.Graphics
-  private hudGfx!:    Phaser.GameObjects.Graphics
+  private bgGfx!:      Phaser.GameObjects.Graphics
+  private curbGfx!:    Phaser.GameObjects.Graphics
+  private fxGfx!:      Phaser.GameObjects.Graphics
+  private playerGfx!:  Phaser.GameObjects.Graphics
+  private overlayGfx!: Phaser.GameObjects.Graphics   // screen effects
+  private hudGfx!:     Phaser.GameObjects.Graphics
+
+  // Screen effect state
+  private pickupNotif: { text: string; color: number; life: number } | null = null
+  private fuelWarningPhase = 0
 
   private dashMarks:    DashMark[]     = []
   private scenery:      SceneryItem[]  = []
@@ -150,11 +159,18 @@ export default class RaceScene extends Phaser.Scene {
     // Player, depth 7
     this.playerGfx = this.add.graphics().setDepth(7)
 
+    // Screen overlay (speed lines, vignette, fuel flash), depth 9
+    this.overlayGfx = this.add.graphics().setDepth(9)
+
     // HUD, depth 10
     this.hudGfx = this.add.graphics().setDepth(10)
 
     this.setupKeys()
     this.setupSpawnEvents()
+
+    // Resume / start audio on first interaction
+    this.input.once('pointerdown', () => { resumeAudio(); startEngine() })
+    this.input.keyboard!.once('keydown', () => { resumeAudio(); startEngine() })
   }
 
   // ── Helpers ────────────────────────────────────────────────────
@@ -679,23 +695,114 @@ export default class RaceScene extends Phaser.Scene {
     }
   }
 
-  // ── HUD ─────────────────────────────────────────────────────
-  private renderHUD() {
+  // ── HUD (segmented fuel, speed, pickup notif) ───────────────
+  private renderHUD(ds: number) {
     const g = this.hudGfx
     g.clear()
-    const barX = 12, barY = CANVAS_H - 22, barW = 120, barH = 12
-    g.fillStyle(0x000000, 0.60)
-    g.fillRoundedRect(barX - 3, barY - 3, barW + 6, barH + 6, 5)
+
     const pct = Math.max(0, raceBridge.fuelLevel)
-    const fuelColor = pct > 0.5 ? C.fuel : pct > 0.25 ? 0xffcc00 : 0xff3300
-    g.fillStyle(fuelColor, 1)
-    g.fillRoundedRect(barX, barY, barW * pct, barH, 3)
-    g.lineStyle(1, 0x000000, 0.3)
-    for (let i = 1; i < 4; i++) g.strokeRect(barX + barW * i / 4, barY, 1, barH)
-    const scoreStr = `${Math.round(this.score)}`
-    const scoreX = CANVAS_W - 12 - scoreStr.length * 9
-    g.fillStyle(0x000000, 0.5)
-    g.fillRoundedRect(scoreX - 6, CANVAS_H - 24, scoreStr.length * 9 + 12, 18, 4)
+    const segments = 10
+    const segW = 9, segH = 14, segGap = 3
+    const totalW = segments * segW + (segments - 1) * segGap
+    const barX = 12, barY = CANVAS_H - 22
+
+    // Background pill
+    g.fillStyle(0x000000, 0.65)
+    g.fillRoundedRect(barX - 4, barY - 4, totalW + 8, segH + 8, 5)
+
+    // Fuel label
+    const litCount = Math.round(pct * segments)
+    for (let i = 0; i < segments; i++) {
+      const lit = i < litCount
+      const fuelColor = i < segments * 0.3 ? 0xff3300 : i < segments * 0.5 ? 0xffcc00 : C.fuel
+      const sx = barX + i * (segW + segGap)
+      g.fillStyle(fuelColor, lit ? 1 : 0.18)
+      g.fillRoundedRect(sx, barY, segW, segH, 2)
+      // Glow on lit segments
+      if (lit && pct < 0.3) {
+        g.fillStyle(0xff3300, 0.12)
+        g.fillRoundedRect(sx - 1, barY - 1, segW + 2, segH + 2, 3)
+      }
+    }
+
+    // Speed display (bottom right of fuel bar)
+    const speedKmh = Math.round(this.gameSpeed * 0.6)
+    g.fillStyle(0x000000, 0.55)
+    g.fillRoundedRect(barX + totalW + 8, barY - 2, 52, segH + 4, 4)
+
+    // Nitro indicator (cyan stripe under speed)
+    if (this.nitroTimer > 0) {
+      const nitroPct = Math.min(1, this.nitroTimer / 3000)
+      g.fillStyle(0x00ccff, 0.85)
+      g.fillRoundedRect(barX + totalW + 8, barY + segH + 4, 52 * nitroPct, 3, 1)
+      g.fillStyle(0x00ccff, 0.18)
+      g.fillRoundedRect(barX + totalW + 8, barY + segH + 4, 52, 3, 1)
+    }
+
+    // Pickup notification badge (top-right area of canvas)
+    if (this.pickupNotif) {
+      this.pickupNotif.life -= ds * 1000
+      const a = Math.min(1, this.pickupNotif.life / 400)
+      if (this.pickupNotif.life > 0) {
+        const notifY = 12 + (1 - a) * -8
+        const txt = this.pickupNotif.text
+        const notifW = txt.length * 8 + 20
+        g.fillStyle(this.pickupNotif.color, a * 0.9)
+        g.fillRoundedRect(CANVAS_W - notifW - 10, notifY, notifW, 22, 6)
+      } else {
+        this.pickupNotif = null
+      }
+    }
+  }
+
+  // ── Screen effects (speed lines, nitro vignette, fuel flash) ─
+  private renderScreenFX(ds: number) {
+    const g = this.overlayGfx
+    g.clear()
+
+    // Speed lines: radial streaks when going fast
+    const speedFactor = Math.max(0, (this.gameSpeed - 340) / (MAX_SPEED - 340))
+    if (speedFactor > 0) {
+      const cx = CANVAS_W / 2, cy = CANVAS_H / 2
+      const lineCount = 20
+      const t = Date.now() / 80
+      for (let i = 0; i < lineCount; i++) {
+        const angle = (i / lineCount) * Math.PI * 2 + t * 0.02
+        const len = 60 + speedFactor * 120
+        const x1 = cx + Math.cos(angle) * (80 + speedFactor * 30)
+        const y1 = cy + Math.sin(angle) * (80 + speedFactor * 30)
+        const x2 = cx + Math.cos(angle) * (80 + speedFactor * 30 + len)
+        const y2 = cy + Math.sin(angle) * (80 + speedFactor * 30 + len)
+        g.lineStyle(1, 0xffffff, speedFactor * 0.12)
+        g.beginPath()
+        g.moveTo(x1, y1)
+        g.lineTo(x2, y2)
+        g.strokePath()
+      }
+    }
+
+    // Nitro vignette: cyan glow on edges
+    if (this.nitroTimer > 0) {
+      const a = Math.min(0.35, (this.nitroTimer / 3000) * 0.35)
+      const edgeW = 28
+      g.fillStyle(0x00ccff, a)
+      g.fillRect(0, 0, edgeW, CANVAS_H)
+      g.fillRect(CANVAS_W - edgeW, 0, edgeW, CANVAS_H)
+      g.fillRect(0, 0, CANVAS_W, edgeW)
+      g.fillRect(0, CANVAS_H - edgeW, CANVAS_W, edgeW)
+    }
+
+    // Fuel warning: pulsing red border when fuel < 15%
+    if (this.fuel < 0.15 && this.fuel > 0) {
+      this.fuelWarningPhase += ds * 4
+      const a = (Math.sin(this.fuelWarningPhase) * 0.5 + 0.5) * 0.5
+      const bw = 8
+      g.fillStyle(0xff0000, a)
+      g.fillRect(0, 0, CANVAS_W, bw)
+      g.fillRect(0, CANVAS_H - bw, CANVAS_W, bw)
+      g.fillRect(0, 0, bw, CANVAS_H)
+      g.fillRect(CANVAS_W - bw, 0, bw, CANVAS_H)
+    }
   }
 
   // ── Score float text ────────────────────────────────────────
@@ -739,23 +846,30 @@ export default class RaceScene extends Phaser.Scene {
         this.score += 50
         this.addScoreFloat(x, y, '+50', '#ffd700')
         this.emitBurst(x, y, C.coinBurst, 0xffaa00, 10)
+        this.pickupNotif = { text: '+50 COIN', color: 0xffd700, life: 1200 }
+        playCoin()
         raceBridge.onCoinCollected?.()
         break
       case 'fuel':
         raceBridge.fuelLevel = Math.min(1, raceBridge.fuelLevel + 0.28)
         this.addScoreFloat(x, y, 'FUEL!', '#22cc44')
         this.emitBurst(x, y, C.fuelBurst, 0x00aa33, 8)
+        this.pickupNotif = { text: 'FUEL +28%', color: 0x22cc44, life: 1200 }
+        playFuel()
         raceBridge.onFuelCollected?.()
         break
       case 'nitro':
         this.nitroTimer = 3000
         this.addScoreFloat(x, y, 'NITRO!', '#00ccff')
         this.emitBurst(x, y, C.nitroFlame, 0x0044ff, 8)
+        this.pickupNotif = { text: 'NITRO!', color: 0x00ccff, life: 1500 }
+        playNitro()
         raceBridge.onNitroCollected?.()
         break
       case 'oil':
         this.triggerCrash('oil')
         this.addScoreFloat(x, y, 'OIL!', '#884488')
+        this.pickupNotif = { text: 'OIL SLICK!', color: 0xaa44ff, life: 1000 }
         break
     }
   }
@@ -807,6 +921,9 @@ export default class RaceScene extends Phaser.Scene {
           color: C.smoke, gravity: -8, decay: 0.65,
         })
       }
+      playOilSkid()
+    } else {
+      playCrash(severity === 'hard')
     }
     raceBridge.onCrash?.()
   }
@@ -897,7 +1014,8 @@ export default class RaceScene extends Phaser.Scene {
       this.scrollCity(idleSpeed, ds)
       this.renderCurb(idleSpeed)
       this.drawPlayerCar(0)
-      this.renderHUD()
+      this.renderHUD(ds)
+      this.renderScreenFX(ds)
       return
     }
     this.raceStarted = true
@@ -942,7 +1060,15 @@ export default class RaceScene extends Phaser.Scene {
     this.drawPlayerCar(this.spinDuration > 0 ? this.spinAngle : 0)
     this.updateParticles(ds)
     this.updateScoreFloats(ds)
-    this.renderHUD()
+    this.renderScreenFX(ds)
+    this.renderHUD(ds)
+
+    // Update engine audio
+    updateEngineSpeed(this.gameSpeed / MAX_SPEED)
+  }
+
+  shutdown() {
+    stopEngine()
   }
 }
 

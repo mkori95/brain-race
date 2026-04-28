@@ -105,12 +105,14 @@ export type RaceStatus = 'idle' | 'preparing' | 'countdown' | 'racing' | 'ended'
 export interface RaceResult {
   position: number
   totalVehicles: number
-  score: number          // road score from Phaser
+  score: number
   coinsEarned: number
   xpEarned: number
   distanceTraveled: number
-  qualiScore: number     // 0-5 correct
-  gridPosition: number   // 1-5
+  qualiScore: number
+  gridPosition: number
+  isDaily?: boolean
+  newStreak?: number
 }
 
 // ─── Store ────────────────────────────────────────────────────
