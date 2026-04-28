@@ -860,9 +860,10 @@ export const PHASER_CONFIG = (parent: string): Phaser.Types.Core.GameConfig => (
   parent,
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_HORIZONTALLY,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
     width: CANVAS_W,
     height: CANVAS_H,
+    expandParent: true,
   },
   scene: [RaceScene],
   audio: { disableWebAudio: false },
