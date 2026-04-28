@@ -28,27 +28,14 @@ const QUICK_TOPICS = [
 
 export default function RaceSetupScreen() {
   const navigate = useNavigate()
-  const { selectedVehicleId, raceTopicOverride, setRaceTopicOverride, prepareRace } = useGameStore()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const { selectedVehicleId, raceTopicOverride, setRaceTopicOverride } = useGameStore()
   const [customTopic, setCustomTopic] = useState('')
 
   const vehicle = getVehicle(selectedVehicleId)
 
-  const handleStart = async () => {
-    setError('')
-    setLoading(true)
-    try {
-      if (customTopic.trim()) setRaceTopicOverride(customTopic.trim())
-      await prepareRace()
-      navigate('/race')
-    } catch (e) {
-      setError('Could not load questions. Starting with offline questions...')
-      await prepareRace()
-      navigate('/race')
-    } finally {
-      setLoading(false)
-    }
+  const handleStart = () => {
+    if (customTopic.trim()) setRaceTopicOverride(customTopic.trim())
+    navigate('/qualify')
   }
 
   const activeTopic = raceTopicOverride
@@ -117,28 +104,21 @@ export default function RaceSetupScreen() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <InfoRow icon="⏱️" label="Duration" value="90 seconds" />
           <InfoRow icon="🤖" label="Opponents" value="4 AI racers" />
-          <InfoRow icon="❓" label="Questions" value="Up to 9 questions" />
+          <InfoRow icon="🧠" label="Qualifier" value="5 questions → grid position" />
           <InfoRow icon="🎯" label="Topic" value={activeTopic ?? 'Personalised mix'} />
         </div>
       </div>
-
-      {error && (
-        <div style={{ color: 'var(--warning)', fontSize: 13, marginBottom: 12 }}>{error}</div>
-      )}
 
       <button
         className="btn btn-primary btn-full btn-lg"
         style={{
           background: 'linear-gradient(135deg, #ff6b35, #cc3300)',
           boxShadow: '0 4px 20px rgba(255,107,53,0.3)',
-          fontSize: 18,
-          fontWeight: 900,
-          letterSpacing: '0.06em',
+          fontSize: 18, fontWeight: 900, letterSpacing: '0.06em',
         }}
         onClick={handleStart}
-        disabled={loading}
       >
-        {loading ? '🔄 Loading questions...' : '🚦 START RACE'}
+        🧠 Begin Qualifier
       </button>
     </div>
   )

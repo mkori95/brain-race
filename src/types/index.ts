@@ -6,9 +6,9 @@ export type PlayerLevel = 'rookie' | 'amateur' | 'pro' | 'expert' | 'legend'
 
 export interface Persona {
   name: string
-  dob: string                    // ISO date string
+  dob: string
   ageGroup: AgeGroup
-  gender: string                 // optional, empty string if not set
+  gender: string
   roles: string[]
   personality: string[]
   interests: string[]
@@ -48,7 +48,7 @@ export interface VehicleDefinition {
   acceleration: AccelerationTier
   handling: HandlingTier
   coinCost: number
-  color: string        // hex color for Phaser rendering
+  color: string
   emoji: string
 }
 
@@ -75,49 +75,42 @@ export interface WrongAnswer {
   playerAnswer: string
 }
 
+// ─── Qualifier ────────────────────────────────────────────────
+
+export type QualiPhase = 'idle' | 'loading' | 'active' | 'result'
+
+export interface QualiAnswer {
+  question: Question
+  playerAnswer: string | null   // null = timed out
+  isCorrect: boolean
+  timeSpentMs: number
+}
+
+// Grid position → start delay map (ms)
+export const GRID_DELAY_MS: Record<number, number> = {
+  1: 0,
+  2: 800,
+  3: 1600,
+  4: 2400,
+  5: 3200,
+}
+
+// AI simulated qualifier scores (correct answers out of 5, by level tier)
+export const AI_QUALI_SCORES = [1, 2, 3, 4]  // [Rex, Zara, Bolt, Nova]
+
 // ─── Race ─────────────────────────────────────────────────────
 
 export type RaceStatus = 'idle' | 'preparing' | 'countdown' | 'racing' | 'ended'
 
-export interface AIVehicle {
-  id: string
-  name: string
-  speedMultiplier: number   // constant speed throughout race
-  distance: number          // meters travelled
-  color: string
-  vehicleEmoji: string
-  lane: number              // 1-5 (player always lane 3)
-}
-
 export interface RaceResult {
   position: number
   totalVehicles: number
-  points: number
+  score: number          // road score from Phaser
   coinsEarned: number
   xpEarned: number
-  wrongAnswers: WrongAnswer[]
-  totalQuestions: number
-  correctAnswers: number
-  playerDistance: number
-  topicBreakdown: Record<string, { correct: number; total: number }>
-}
-
-export type QuestionPhase = 'showing' | 'answered_correct' | 'answered_wrong' | 'timeout' | 'between'
-
-export interface ActiveQuestion {
-  question: Question
-  phase: QuestionPhase
-  playerAnswer: string | null
-  timeRemainingMs: number
-}
-
-// ─── Daily Challenge ──────────────────────────────────────────
-
-export interface DailyChallenge {
-  date: string       // YYYY-MM-DD
-  topic: string
-  topicLabel: string
-  coinReward: number
+  distanceTraveled: number
+  qualiScore: number     // 0-5 correct
+  gridPosition: number   // 1-5
 }
 
 // ─── Store ────────────────────────────────────────────────────
@@ -127,25 +120,20 @@ export interface GameState {
   user: AppUser | null
   authLoading: boolean
 
+  // Qualifier
+  qualiPhase: QualiPhase
+  qualiQuestions: Question[]
+  qualiAnswers: QualiAnswer[]
+  qualiScore: number        // correct count 0-5
+  gridPosition: number      // 1-5 (1 = pole)
+  startDelayMs: number      // derived from gridPosition
+  raceTopicOverride: string | null
+
   // Race
   raceStatus: RaceStatus
-  currentQuestions: Question[]
-  currentQuestionIndex: number
-  activeQuestion: ActiveQuestion | null
-  playerSpeed: number          // 0.0 to 1.0 multiplier
-  playerDistance: number       // metres
-  aiVehicles: AIVehicle[]
-  raceTimeLeft: number         // seconds
-  racePoints: number
-  raceCoins: number
-  consecutiveWrong: number
-  answerStreak: number
-  isStalled: boolean
-  stallTimeLeft: number
-  wrongAnswers: WrongAnswer[]
+  raceTimeLeft: number
   raceResult: RaceResult | null
   isOfflineMode: boolean
-  raceTopicOverride: string | null
 
   // UI
   selectedVehicleId: string
@@ -160,12 +148,16 @@ export interface GameActions {
   updateProgress: (progress: Partial<PlayerProgress>) => void
   setSelectedVehicle: (vehicleId: string) => void
   setRaceTopicOverride: (topic: string | null) => void
-  prepareRace: () => Promise<void>
+
+  // Qualifier
+  prepareQualifier: () => Promise<void>
+  submitQualiAnswer: (answer: string | null, timeSpentMs: number) => void
+  finalizeQualifier: () => void
+
+  // Race
   startCountdown: () => void
   startRace: () => void
   tickRace: (deltaMs: number) => void
-  tickQuestion: (deltaMs: number) => void
-  answerQuestion: (answer: string) => void
   endRace: () => void
   resetRace: () => void
 }

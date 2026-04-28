@@ -26,17 +26,16 @@ const getMidnightCountdown = () => {
 
 export default function DailyChallengeScreen() {
   const navigate = useNavigate()
-  const { user, setRaceTopicOverride, prepareRace } = useGameStore()
+  const { user, setRaceTopicOverride } = useGameStore()
   const { topic, dateStr } = getDailyInfo()
 
   if (!user) return null
 
   const alreadyDone = user.progress.dailyChallenge?.lastCompleted === dateStr
 
-  const handleStart = async () => {
+  const handleStart = () => {
     setRaceTopicOverride(topic)
-    await prepareRace()
-    navigate('/race')
+    navigate('/qualify')
   }
 
   return (

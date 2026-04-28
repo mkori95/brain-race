@@ -2,15 +2,11 @@ import { useNavigate } from 'react-router-dom'
 import { useGameStore } from '@/store/useGameStore'
 
 const POS_MESSAGES: Record<number, string> = {
-  1: "🏆 CHAMPION! Perfect brain power!",
-  2: "🥈 So close! Great thinking!",
-  3: "🥉 On the podium! Keep it up!",
-  4: "Almost there! Keep racing!",
-  5: "Every race makes you smarter!",
-}
-
-const POS_CLASSES: Record<number, string> = {
-  1: 'pos-1', 2: 'pos-2', 3: 'pos-3', 4: 'pos-4', 5: 'pos-5',
+  1: '🏆 CHAMPION! Unbeatable brain power!',
+  2: '🥈 So close! Great driving!',
+  3: '🥉 On the podium! Keep racing!',
+  4: 'Almost there! Keep it up!',
+  5: 'Every race makes you sharper!',
 }
 
 export default function PostRaceScreen() {
@@ -22,102 +18,51 @@ export default function PostRaceScreen() {
     return null
   }
 
-  const {
-    position, totalVehicles, points, coinsEarned, xpEarned,
-    wrongAnswers, totalQuestions, correctAnswers, playerDistance,
-  } = raceResult
+  const { position, totalVehicles, score, coinsEarned, xpEarned,
+          distanceTraveled, qualiScore, gridPosition } = raceResult
 
-  const accuracy = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0
-
-  const handlePlayAgain = () => {
-    resetRace()
-    navigate('/race-setup')
-  }
-
-  const handleHome = () => {
-    resetRace()
-    navigate('/home')
-  }
+  const handlePlayAgain = () => { resetRace(); navigate('/race-setup') }
+  const handleHome      = () => { resetRace(); navigate('/home') }
 
   return (
     <div className="screen" style={{ paddingTop: 28 }}>
       {/* Position banner */}
       <div style={{ textAlign: 'center', marginBottom: 24 }}>
-        <div className={`position-badge ${POS_CLASSES[position] ?? 'pos-5'}`} style={{ display: 'inline-block', marginBottom: 12 }}>
+        <div style={{
+          fontSize: 56, fontWeight: 900,
+          background: 'linear-gradient(135deg, #ff6b35, #cc3300)',
+          WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+        }}>
           {position} / {totalVehicles}
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 800 }}>{POS_MESSAGES[position] ?? 'Great race!'}</h1>
+        <h1 style={{ fontSize: 20, fontWeight: 800, marginTop: 4 }}>{POS_MESSAGES[position] ?? 'Great race!'}</h1>
       </div>
 
       {/* Stats grid */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-        <StatCard label="Points" value={points.toLocaleString()} icon="🏆" color="var(--warning)" />
-        <StatCard label="Coins Earned" value={`+${coinsEarned}`} icon="🪙" color="var(--gold)" />
-        <StatCard label="XP Earned" value={`+${xpEarned}`} icon="⚡" color="var(--secondary)" />
-        <StatCard label="Accuracy" value={`${accuracy}%`} icon="🎯" color={accuracy >= 80 ? 'var(--success)' : accuracy >= 50 ? 'var(--warning)' : 'var(--error)'} />
-        <StatCard label="Distance" value={`${Math.round(playerDistance)}m`} icon="📏" color="var(--text)" />
-        <StatCard label="Correct" value={`${correctAnswers}/${totalQuestions}`} icon="✅" color="var(--success)" />
+        <StatCard label="Race Score"    value={score.toLocaleString()}          icon="🏁" color="var(--accent)" />
+        <StatCard label="Coins Earned"  value={`+${coinsEarned}`}               icon="🪙" color="var(--gold)" />
+        <StatCard label="XP Earned"     value={`+${xpEarned}`}                  icon="⚡" color="var(--secondary)" />
+        <StatCard label="Distance"      value={`${Math.round(distanceTraveled)}m`} icon="📏" color="var(--text)" />
+        <StatCard label="Qualifier"     value={`${qualiScore}/5 correct`}       icon="🧠" color="var(--success)" />
+        <StatCard label="Grid Start"    value={`P${gridPosition}`}              icon="🏎️" color={gridPosition === 1 ? 'var(--gold)' : 'var(--text-muted)'} />
       </div>
 
-      {/* Wrong answers review */}
-      {wrongAnswers.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <p className="section-label">📚 Learn from mistakes</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {wrongAnswers.map(({ question, playerAnswer }, i) => (
-              <div key={i} className="card" style={{ borderLeft: '3px solid var(--error)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span className="topic-badge">{question.topic}</span>
-                </div>
-                <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{question.question}</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ fontSize: 13 }}>
-                    <span style={{ color: 'var(--error)' }}>✗ You answered: </span>
-                    <span style={{ color: 'var(--text-muted)' }}>{playerAnswer || 'No answer'}</span>
-                  </div>
-                  <div style={{ fontSize: 13 }}>
-                    <span style={{ color: 'var(--success)' }}>✓ Correct: </span>
-                    <span style={{ fontWeight: 600 }}>{question.correct}</span>
-                  </div>
-                </div>
-                <div
-                  style={{
-                    marginTop: 8,
-                    padding: '8px 10px',
-                    background: 'var(--surface)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 13,
-                    color: 'var(--text-muted)',
-                    lineHeight: 1.5,
-                  }}
-                >
-                  💡 {question.explanation}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Quali summary */}
+      <div className="card" style={{ marginBottom: 20, background: 'var(--surface-2)', textAlign: 'center' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 4 }}>Qualification result</div>
+        <div style={{ fontWeight: 700 }}>
+          {qualiScore}/5 correct → Started P{gridPosition}
+          {gridPosition === 1 ? ' (No delay 🚀)' : ` (${(gridPosition - 1) * 0.8}s delay)`}
         </div>
-      )}
-
-      {wrongAnswers.length === 0 && totalQuestions > 0 && (
-        <div
-          className="card"
-          style={{
-            textAlign: 'center',
-            marginBottom: 20,
-            background: 'rgba(34,197,94,0.08)',
-            border: '1px solid var(--success)',
-          }}
-        >
-          <div style={{ fontSize: 28, marginBottom: 6 }}>🌟</div>
-          <div style={{ fontWeight: 700, color: 'var(--success)' }}>Perfect Race!</div>
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
-            You answered every question correctly. Incredible!
+        {qualiScore === 5 && (
+          <div style={{ color: 'var(--success)', fontSize: 13, marginTop: 6 }}>
+            🌟 Perfect qualifier! You owned the grid.
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* CTA buttons */}
+      {/* CTA */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <button className="btn btn-primary btn-full btn-lg" onClick={handlePlayAgain}>
           🔄 Race Again
@@ -125,11 +70,8 @@ export default function PostRaceScreen() {
         <button className="btn btn-outline btn-full" onClick={handleHome}>
           🏠 Back to Home
         </button>
-        <button
-          className="btn btn-ghost btn-full"
-          style={{ fontSize: 13 }}
-          onClick={() => { resetRace(); navigate('/garage') }}
-        >
+        <button className="btn btn-ghost btn-full" style={{ fontSize: 13 }}
+          onClick={() => { resetRace(); navigate('/garage') }}>
           🏪 Go to Garage
         </button>
       </div>
