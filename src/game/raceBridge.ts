@@ -7,6 +7,7 @@ export interface RaceBridgeData {
   startDelayMs: number      // ms player must wait before accelerating
   playerLevel: number       // 1-5; affects traffic density & speed ceiling
   playerColor: number       // hex color for player car
+  trackTheme: string        // 'night_city' | 'desert' | 'mountain'
 
   // ── Phaser → React (updated every frame) ──
   fuelLevel: number         // 0.0 – 1.0
@@ -31,6 +32,7 @@ export const raceBridge: RaceBridgeData = {
   startDelayMs: 1600,
   playerLevel: 1,
   playerColor: 0xff6b35,
+  trackTheme: 'night_city',
 
   fuelLevel: 1.0,
   raceScore: 0,

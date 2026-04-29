@@ -60,6 +60,50 @@ const C = {
   windowCool:   0x88aaff,
 }
 
+// ── Track themes ───────────────────────────────────────────────
+type TrackThemeName = 'night_city' | 'desert' | 'mountain'
+
+interface ThemeConfig {
+  name: TrackThemeName
+  asphalt: number
+  roadBand: number
+  curbA: number
+  curbB: number
+  neonLane: number
+  neonGlow: number
+  guardrail: number
+  guardrailPost: number
+  guardrailGlowColor: number
+  guardrailGlowAlpha: number
+}
+
+const THEMES: Record<TrackThemeName, ThemeConfig> = {
+  night_city: {
+    name: 'night_city',
+    asphalt: 0x14141f, roadBand: 0x181826,
+    curbA: 0xcc2222, curbB: 0xeeeeee,
+    neonLane: 0x00ccff, neonGlow: 0x004477,
+    guardrail: 0x445566, guardrailPost: 0x2a3a4a,
+    guardrailGlowColor: 0x0088ff, guardrailGlowAlpha: 0.10,
+  },
+  desert: {
+    name: 'desert',
+    asphalt: 0x7a6040, roadBand: 0x6b5232,
+    curbA: 0xcc6611, curbB: 0xe8d8a0,
+    neonLane: 0xffaa22, neonGlow: 0x664400,
+    guardrail: 0x8a7050, guardrailPost: 0x5a4030,
+    guardrailGlowColor: 0xff8800, guardrailGlowAlpha: 0.08,
+  },
+  mountain: {
+    name: 'mountain',
+    asphalt: 0x38384a, roadBand: 0x2e2e3e,
+    curbA: 0xddddee, curbB: 0x778899,
+    neonLane: 0x9999ee, neonGlow: 0x222244,
+    guardrail: 0x667788, guardrailPost: 0x445566,
+    guardrailGlowColor: 0x8899ff, guardrailGlowAlpha: 0.10,
+  },
+}
+
 // ── Types ──────────────────────────────────────────────────────
 type TrafficType = 'slow' | 'oncoming' | 'truck'
 type PickupType  = 'coin' | 'fuel' | 'nitro' | 'oil'
@@ -84,6 +128,8 @@ interface CheckpointData { distance: number; triggered: boolean; isFinish: boole
 
 // ── Scene ──────────────────────────────────────────────────────
 export default class RaceScene extends Phaser.Scene {
+
+  private theme!:      ThemeConfig
 
   private bgGfx!:      Phaser.GameObjects.Graphics
   private curbGfx!:    Phaser.GameObjects.Graphics
@@ -136,6 +182,7 @@ export default class RaceScene extends Phaser.Scene {
   constructor() { super({ key: 'RaceScene' }) }
 
   create() {
+    this.theme          = THEMES[(raceBridge.trackTheme as TrackThemeName) ?? 'night_city'] ?? THEMES.night_city
     this.playerLane     = raceBridge.playerLane
     this.playerScreenX  = this.laneToX(this.playerLane)
     this.startDelayLeft = raceBridge.startDelayMs
@@ -211,27 +258,68 @@ export default class RaceScene extends Phaser.Scene {
   // ── Sky (static, drawn once) ───────────────────────────────────
   private drawSky() {
     const g = this.add.graphics().setDepth(0)
-    // Gradient bands top→horizon
     const bands = 24
-    for (let i = 0; i < bands; i++) {
-      const t = i / bands
-      const r = Math.round(0x02 + t * 0x06)
-      const gv = Math.round(0x02 + t * 0x04)
-      const b  = Math.round(0x0f + t * 0x22)
-      g.fillStyle((r << 16) | (gv << 8) | b, 1)
-      g.fillRect(0, Math.round(i * CANVAS_H / bands), CANVAS_W, Math.ceil(CANVAS_H / bands) + 1)
+
+    if (this.theme.name === 'desert') {
+      // Warm orange-amber sky: deep rust at top, bright sandy horizon
+      for (let i = 0; i < bands; i++) {
+        const t = i / bands
+        const r = Math.round(0x28 + t * 0x70)
+        const gv = Math.round(0x0a + t * 0x62)
+        const b  = Math.round(0x00 + t * 0x18)
+        g.fillStyle((r << 16) | (gv << 8) | b, 1)
+        g.fillRect(0, Math.round(i * CANVAS_H / bands), CANVAS_W, Math.ceil(CANVAS_H / bands) + 1)
+      }
+      // Sun disc (top-right)
+      g.fillStyle(0xffee44, 0.18); g.fillCircle(CANVAS_W * 0.72, CANVAS_H * 0.12, 38)
+      g.fillStyle(0xffdd00, 0.55); g.fillCircle(CANVAS_W * 0.72, CANVAS_H * 0.12, 22)
+      g.fillStyle(0xffffff, 0.90); g.fillCircle(CANVAS_W * 0.72, CANVAS_H * 0.12, 14)
+      // Horizon heat haze
+      g.fillStyle(0xff9944, 0.18)
+      g.fillRect(0, CANVAS_H * 0.40, CANVAS_W, CANVAS_H * 0.18)
+    } else if (this.theme.name === 'mountain') {
+      // Deep purple-to-blue sky
+      for (let i = 0; i < bands; i++) {
+        const t = i / bands
+        const r = Math.round(0x04 + t * 0x0a)
+        const gv = Math.round(0x02 + t * 0x06)
+        const b  = Math.round(0x14 + t * 0x28)
+        g.fillStyle((r << 16) | (gv << 8) | b, 1)
+        g.fillRect(0, Math.round(i * CANVAS_H / bands), CANVAS_W, Math.ceil(CANVAS_H / bands) + 1)
+      }
+      // Stars (more prominent)
+      for (let i = 0; i < 80; i++) {
+        const sx = this.seededRand(i, 1) * CANVAS_W
+        const sy = this.seededRand(i, 2) * CANVAS_H * 0.55
+        const sr = this.seededRand(i, 3) < 0.2 ? 2 : 1
+        g.fillStyle(0xeeeeff, 0.35 + this.seededRand(i, 4) * 0.65)
+        g.fillCircle(sx, sy, sr)
+      }
+      // Misty purple horizon glow
+      g.fillStyle(0x6644aa, 0.14)
+      g.fillRect(0, CANVAS_H * 0.36, CANVAS_W, CANVAS_H * 0.18)
+    } else {
+      // Night City: current dark navy look
+      for (let i = 0; i < bands; i++) {
+        const t = i / bands
+        const r = Math.round(0x02 + t * 0x06)
+        const gv = Math.round(0x02 + t * 0x04)
+        const b  = Math.round(0x0f + t * 0x22)
+        g.fillStyle((r << 16) | (gv << 8) | b, 1)
+        g.fillRect(0, Math.round(i * CANVAS_H / bands), CANVAS_W, Math.ceil(CANVAS_H / bands) + 1)
+      }
+      // Stars
+      for (let i = 0; i < 65; i++) {
+        const sx = this.seededRand(i, 1) * CANVAS_W
+        const sy = this.seededRand(i, 2) * CANVAS_H * 0.52
+        const sr = this.seededRand(i, 3) < 0.25 ? 1.5 : 1
+        g.fillStyle(0xffffff, 0.3 + this.seededRand(i, 4) * 0.7)
+        g.fillCircle(sx, sy, sr)
+      }
+      // Neon horizon glow
+      g.fillStyle(0x0033aa, 0.12)
+      g.fillRect(0, CANVAS_H * 0.38, CANVAS_W, CANVAS_H * 0.15)
     }
-    // Stars
-    for (let i = 0; i < 65; i++) {
-      const sx = this.seededRand(i, 1) * CANVAS_W
-      const sy = this.seededRand(i, 2) * CANVAS_H * 0.52
-      const sr = this.seededRand(i, 3) < 0.25 ? 1.5 : 1
-      g.fillStyle(0xffffff, 0.3 + this.seededRand(i, 4) * 0.7)
-      g.fillCircle(sx, sy, sr)
-    }
-    // Neon horizon glow
-    g.fillStyle(0x0033aa, 0.12)
-    g.fillRect(0, CANVAS_H * 0.38, CANVAS_W, CANVAS_H * 0.15)
   }
 
   // ── City parallax buildings ─────────────────────────────────
@@ -254,20 +342,28 @@ export default class RaceScene extends Phaser.Scene {
 
   private drawCityBld(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
     g.clear()
+    if (this.theme.name === 'desert') {
+      this.drawDesertBgElement(g, x, y, seed)
+    } else if (this.theme.name === 'mountain') {
+      this.drawMountainPeak(g, x, y, seed)
+    } else {
+      this.drawNightCityBld(g, x, y, seed)
+    }
+  }
+
+  private drawNightCityBld(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
     const w = 16 + this.seededRand(seed, 4) * 28
     const h = 50 + this.seededRand(seed, 5) * 110
     const bx = x - w / 2
     const shade = 0x08 + Math.round(this.seededRand(seed, 6) * 0x08)
     g.fillStyle((shade << 16) | (shade << 8) | (shade + 0x1a), 1)
     g.fillRect(bx, y - h, w, h)
-    // Antenna
     if (this.seededRand(seed, 9) > 0.45) {
       g.fillStyle(0x223344, 1)
       g.fillRect(bx + w / 2 - 1, y - h - 10, 2, 10)
       g.fillStyle(0xff2222, 0.65)
       g.fillCircle(bx + w / 2, y - h - 10, 2)
     }
-    // Windows
     const cols = Math.floor(w / 8)
     const rows = Math.floor(h / 10)
     for (let row = 0; row < rows; row++) {
@@ -280,14 +376,60 @@ export default class RaceScene extends Phaser.Scene {
     }
   }
 
+  private drawDesertBgElement(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const type = Math.floor(this.seededRand(seed, 8) * 2)
+    if (type === 0) {
+      // Mesa / butte silhouette
+      const w = 38 + this.seededRand(seed, 4) * 55
+      const h = 28 + this.seededRand(seed, 5) * 44
+      const topW = w * (0.35 + this.seededRand(seed, 6) * 0.35)
+      const bx = x - w / 2
+      g.fillStyle(0x7a5030, 1)
+      g.fillRect(bx + (w - topW) / 2, y - h, topW, h)
+      g.fillRect(bx, y - h * 0.4, w, h * 0.4)
+      // Shadow side
+      g.fillStyle(0x5a3820, 0.42)
+      g.fillRect(bx + w * 0.52, y - h, w * 0.48, h)
+    } else {
+      // Sand dune — gentle curve
+      const w = 60 + this.seededRand(seed, 4) * 70
+      const h = 18 + this.seededRand(seed, 5) * 28
+      g.fillStyle(0x9a7a50, 0.85)
+      g.fillEllipse(x, y - h * 0.5, w, h * 1.1)
+      g.fillStyle(0xb89060, 0.35)
+      g.fillEllipse(x - w * 0.15, y - h * 0.65, w * 0.55, h * 0.55)
+    }
+  }
+
+  private drawMountainPeak(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const w = 45 + this.seededRand(seed, 4) * 65
+    const h = 75 + this.seededRand(seed, 5) * 110
+    // Mountain body
+    const shade = 0x22 + Math.round(this.seededRand(seed, 6) * 0x10)
+    g.fillStyle((shade << 16) | (shade << 8) | (shade + 0x18), 1)
+    g.fillTriangle(x, y - h, x - w / 2, y, x + w / 2, y)
+    // Shadow face
+    g.fillStyle(0x101018, 0.35)
+    g.fillTriangle(x + w * 0.08, y - h, x + w / 2, y, x, y)
+    // Snow cap
+    const snowPct = 0.22 + this.seededRand(seed, 7) * 0.18
+    const snowH = h * snowPct
+    const snowHalfW = (snowH / h) * (w / 2) * 1.1
+    g.fillStyle(0xeef0ff, 0.92)
+    g.fillTriangle(x, y - h, x - snowHalfW, y - h + snowH, x + snowHalfW, y - h + snowH)
+    // Snow highlight
+    g.fillStyle(0xffffff, 0.55)
+    g.fillTriangle(x, y - h, x - snowHalfW * 0.45, y - h + snowH * 0.55, x, y - h + snowH * 0.5)
+  }
+
   // ── Road surface (only asphalt + edge lines) ────────────────
   private drawBackground() {
     const g = this.bgGfx
-    g.fillStyle(C.asphalt, 1)
+    g.fillStyle(this.theme.asphalt, 1)
     g.fillRect(ROAD_LEFT, 0, ROAD_W, CANVAS_H)
     // Subtle banding
     for (let y = 0; y < CANVAS_H; y += 44) {
-      g.fillStyle(0x181826, 0.45)
+      g.fillStyle(this.theme.roadBand, 0.45)
       g.fillRect(ROAD_LEFT, y, ROAD_W, 22)
     }
     // Edge white lines
@@ -305,10 +447,10 @@ export default class RaceScene extends Phaser.Scene {
       for (let i = 0; i < total; i++) {
         const g = this.add.graphics().setDepth(3)
         // Wide dim glow
-        g.fillStyle(C.neonGlow, 0.22)
+        g.fillStyle(this.theme.neonGlow, 0.22)
         g.fillRect(x - 4, 0, 8, DASH_H)
         // Bright core
-        g.fillStyle(C.neonLane, 0.75)
+        g.fillStyle(this.theme.neonLane, 0.75)
         g.fillRect(x - 1, 0, 2, DASH_H)
         g.y = i * PERIOD - PERIOD
         this.dashMarks.push({ g, lane, y: g.y })
@@ -328,9 +470,21 @@ export default class RaceScene extends Phaser.Scene {
     const cx = side === 'left'
       ? ROAD_LEFT - 28 - this.seededRand(seed, 1) * 38
       : ROAD_RIGHT + 28 + this.seededRand(seed, 2) * 38
-    if (type === 0)      this.drawTree(g, cx, 0, seed)
-    else if (type === 1) this.drawNearBld(g, cx, 0, seed)
-    else                 this.drawLamp(g, cx, 0)
+
+    if (this.theme.name === 'desert') {
+      if (type === 0)      this.drawCactus(g, cx, 0, seed)
+      else if (type === 1) this.drawDesertRock(g, cx, 0, seed)
+      else                 this.drawDesertLamp(g, cx, 0)
+    } else if (this.theme.name === 'mountain') {
+      if (type === 0)      this.drawPineTree(g, cx, 0, seed)
+      else if (type === 1) this.drawSnowRock(g, cx, 0, seed)
+      else                 this.drawLamp(g, cx, 0)
+    } else {
+      if (type === 0)      this.drawTree(g, cx, 0, seed)
+      else if (type === 1) this.drawNearBld(g, cx, 0, seed)
+      else                 this.drawLamp(g, cx, 0)
+    }
+
     g.y = startY
     this.scenery.push({ g, y: startY })
   }
@@ -369,6 +523,91 @@ export default class RaceScene extends Phaser.Scene {
     g.fillCircle(x + 12, y - 32, 4)
     g.fillStyle(0xffffff, 1)
     g.fillCircle(x + 12, y - 32, 2)
+  }
+
+  // ── Desert scenery ────────────────────────────────────────────
+  private drawCactus(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const s = 0.7 + this.seededRand(seed, 7) * 0.6
+    const trunkColor = 0x3a6820
+    // Trunk
+    g.fillStyle(trunkColor, 1)
+    g.fillRect(x - 4 * s, y - 36 * s, 8 * s, 36 * s)
+    // Left arm
+    if (this.seededRand(seed, 2) > 0.3) {
+      const armY = y - 22 * s
+      g.fillRect(x - 16 * s, armY, 12 * s, 5 * s)
+      g.fillRect(x - 16 * s, armY - 10 * s, 5 * s, 14 * s)
+    }
+    // Right arm
+    if (this.seededRand(seed, 3) > 0.3) {
+      const armY = y - 26 * s
+      g.fillRect(x + 4 * s, armY, 12 * s, 5 * s)
+      g.fillRect(x + 11 * s, armY - 8 * s, 5 * s, 12 * s)
+    }
+    // Spines (highlights)
+    g.fillStyle(0x88cc44, 0.45)
+    g.fillRect(x - 2 * s, y - 36 * s, 2 * s, 36 * s)
+  }
+
+  private drawDesertRock(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const w = 22 + this.seededRand(seed, 4) * 24
+    const h = 14 + this.seededRand(seed, 5) * 18
+    g.fillStyle(0x8a6840, 1)
+    g.fillEllipse(x, y - h * 0.5, w, h)
+    // Highlight
+    g.fillStyle(0xaa8860, 0.45)
+    g.fillEllipse(x - w * 0.15, y - h * 0.7, w * 0.5, h * 0.4)
+    // Shadow
+    g.fillStyle(0x5a4020, 0.35)
+    g.fillEllipse(x + w * 0.2, y - h * 0.35, w * 0.55, h * 0.5)
+  }
+
+  private drawDesertLamp(g: Phaser.GameObjects.Graphics, x: number, y: number) {
+    g.fillStyle(0x7a5a30, 1)
+    g.fillRect(x - 2, y - 30, 4, 30)
+    g.fillRect(x - 2, y - 30, 12, 3)
+    g.fillStyle(0xffcc55, 0.15)
+    g.fillCircle(x + 10, y - 30, 9)
+    g.fillStyle(0xffcc22, 0.85)
+    g.fillCircle(x + 10, y - 30, 3)
+  }
+
+  // ── Mountain scenery ──────────────────────────────────────────
+  private drawPineTree(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const s = 0.7 + this.seededRand(seed, 7) * 0.6
+    // Trunk
+    g.fillStyle(0x3a2810, 1)
+    g.fillRect(x - 3 * s, y - 6 * s, 6 * s, 10 * s)
+    // Tiers of foliage
+    const tiers = [
+      { w: 22 * s, oy: 30 * s },
+      { w: 18 * s, oy: 20 * s },
+      { w: 13 * s, oy: 12 * s },
+    ]
+    for (const tier of tiers) {
+      g.fillStyle(0x1a4010, 1)
+      g.fillTriangle(x, y - tier.oy, x - tier.w / 2, y - tier.oy + tier.w * 0.65, x + tier.w / 2, y - tier.oy + tier.w * 0.65)
+      g.fillStyle(0x2a6020, 0.6)
+      g.fillTriangle(x - tier.w * 0.1, y - tier.oy, x - tier.w / 2, y - tier.oy + tier.w * 0.65, x, y - tier.oy + tier.w * 0.4)
+    }
+    // Snow on tips
+    if (this.seededRand(seed, 8) > 0.4) {
+      g.fillStyle(0xeef0ff, 0.75)
+      g.fillTriangle(x, y - 30 * s, x - 6 * s, y - 20 * s, x + 6 * s, y - 20 * s)
+    }
+  }
+
+  private drawSnowRock(g: Phaser.GameObjects.Graphics, x: number, y: number, seed: number) {
+    const w = 24 + this.seededRand(seed, 4) * 22
+    const h = 16 + this.seededRand(seed, 5) * 16
+    g.fillStyle(0x556677, 1)
+    g.fillEllipse(x, y - h * 0.5, w, h)
+    // Snow cap
+    g.fillStyle(0xeef0ff, 0.85)
+    g.fillEllipse(x, y - h * 0.9, w * 0.65, h * 0.5)
+    // Dark crevice
+    g.fillStyle(0x334455, 0.4)
+    g.fillEllipse(x + w * 0.22, y - h * 0.4, w * 0.4, h * 0.4)
   }
 
   // ── Input ──────────────────────────────────────────────────
@@ -696,17 +935,17 @@ export default class RaceScene extends Phaser.Scene {
     const phase = (Date.now() / 1000) * speed % (STRIPE * 2)
     for (let i = 0; i < count; i++) {
       const y = i * STRIPE - phase % (STRIPE * 2)
-      const isRed = Math.floor((i + Math.floor(phase / STRIPE)) % 2) === 0
-      g.fillStyle(isRed ? C.curbRed : C.curbWhite, 1)
+      const isA = Math.floor((i + Math.floor(phase / STRIPE)) % 2) === 0
+      g.fillStyle(isA ? this.theme.curbA : this.theme.curbB, 1)
       g.fillRect(ROAD_LEFT - 8,  y, 8, STRIPE)
       g.fillRect(ROAD_RIGHT,     y, 8, STRIPE)
     }
     // Guardrail beam
-    g.fillStyle(C.guardrail, 0.88)
+    g.fillStyle(this.theme.guardrail, 0.88)
     g.fillRect(ROAD_LEFT - 18, 0, 3, CANVAS_H)
     g.fillRect(ROAD_RIGHT + 15, 0, 3, CANVAS_H)
-    // Neon tint on beam
-    g.fillStyle(0x0088ff, 0.10)
+    // Colored tint on beam
+    g.fillStyle(this.theme.guardrailGlowColor, this.theme.guardrailGlowAlpha)
     g.fillRect(ROAD_LEFT - 18, 0, 3, CANVAS_H)
     g.fillRect(ROAD_RIGHT + 15, 0, 3, CANVAS_H)
     // Scrolling posts
@@ -715,7 +954,7 @@ export default class RaceScene extends Phaser.Scene {
     const postPhase   = (Date.now() / 1000) * speed % postSpacing
     for (let i = 0; i < postCount; i++) {
       const py = i * postSpacing - postPhase % postSpacing
-      g.fillStyle(C.guardrailPost, 1)
+      g.fillStyle(this.theme.guardrailPost, 1)
       g.fillRect(ROAD_LEFT - 20, py - 3, 6, 10)
       g.fillRect(ROAD_RIGHT + 14, py - 3, 6, 10)
     }

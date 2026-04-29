@@ -98,6 +98,10 @@ export const GRID_DELAY_MS: Record<number, number> = {
 // AI simulated qualifier scores (correct answers out of 5, by level tier)
 export const AI_QUALI_SCORES = [1, 2, 3, 4]  // [Rex, Zara, Bolt, Nova]
 
+// ─── Track Themes ─────────────────────────────────────────────
+
+export type TrackThemeName = 'night_city' | 'desert' | 'mountain'
+
 // ─── Race ─────────────────────────────────────────────────────
 
 export type RaceStatus = 'idle' | 'preparing' | 'countdown' | 'racing' | 'ended'
@@ -139,6 +143,7 @@ export interface GameState {
 
   // UI
   selectedVehicleId: string
+  trackTheme: TrackThemeName
 }
 
 export type GameStore = GameState & GameActions
@@ -150,6 +155,7 @@ export interface GameActions {
   updateProgress: (progress: Partial<PlayerProgress>) => void
   setSelectedVehicle: (vehicleId: string) => void
   setRaceTopicOverride: (topic: string | null) => void
+  setTrackTheme: (theme: TrackThemeName) => void
 
   // Qualifier
   prepareQualifier: () => Promise<void>

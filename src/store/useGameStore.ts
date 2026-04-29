@@ -7,6 +7,7 @@ import {
   QualiAnswer,
   RaceResult,
   QualiPhase,
+  TrackThemeName,
   AI_QUALI_SCORES,
   GRID_DELAY_MS,
 } from '@/types'
@@ -51,6 +52,7 @@ const INITIAL_STATE = {
   isOfflineMode: false,
 
   selectedVehicleId: 'city_hatchback',
+  trackTheme: 'night_city' as TrackThemeName,
 }
 
 // ── Store ──────────────────────────────────────────────────────
@@ -82,6 +84,7 @@ const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setRaceTopicOverride: (topic: string | null) => set({ raceTopicOverride: topic }),
+  setTrackTheme: (theme: TrackThemeName) => set({ trackTheme: theme }),
 
   // ── Qualifier ─────────────────────────────────────────────────
 
@@ -142,6 +145,7 @@ const useGameStore = create<GameStore>((set, get) => ({
     raceBridge.gridPosition = gridPosition
     raceBridge.startDelayMs = startDelayMs
     raceBridge.playerLevel = playerLevel
+    raceBridge.trackTheme = get().trackTheme
     const vehicleDef = getVehicle(get().selectedVehicleId)
     raceBridge.playerColor = parseInt(vehicleDef.color.replace('#', ''), 16)
   },

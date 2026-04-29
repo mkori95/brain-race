@@ -2,6 +2,28 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useGameStore } from '@/store/useGameStore'
 import { getVehicle } from '@/data/vehicles'
+import type { TrackThemeName } from '@/types'
+
+const TRACK_THEMES: { id: TrackThemeName; label: string; desc: string; colors: string[] }[] = [
+  {
+    id: 'night_city',
+    label: 'Night City',
+    desc: 'Neon streets, city skyline',
+    colors: ['#0a0a1a', '#00ccff', '#cc2222'],
+  },
+  {
+    id: 'desert',
+    label: 'Desert Highway',
+    desc: 'Sandy dunes, scorching sun',
+    colors: ['#7a6040', '#ffaa22', '#cc6611'],
+  },
+  {
+    id: 'mountain',
+    label: 'Mountain Pass',
+    desc: 'Snow peaks, purple sky',
+    colors: ['#38384a', '#9999ee', '#ddddee'],
+  },
+]
 
 const QUICK_TOPICS = [
   { label: '🎲 Surprise Me', value: null },
@@ -28,7 +50,7 @@ const QUICK_TOPICS = [
 
 export default function RaceSetupScreen() {
   const navigate = useNavigate()
-  const { selectedVehicleId, raceTopicOverride, setRaceTopicOverride } = useGameStore()
+  const { selectedVehicleId, raceTopicOverride, setRaceTopicOverride, trackTheme, setTrackTheme } = useGameStore()
   const [customTopic, setCustomTopic] = useState('')
 
   const vehicle = getVehicle(selectedVehicleId)
@@ -68,6 +90,43 @@ export default function RaceSetupScreen() {
         >
           Change
         </button>
+      </div>
+
+      {/* Track theme picker */}
+      <div style={{ marginBottom: 20 }}>
+        <p className="section-label">Choose a track theme</p>
+        <div style={{ display: 'flex', gap: 10 }}>
+          {TRACK_THEMES.map((t) => {
+            const active = trackTheme === t.id
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTrackTheme(t.id)}
+                style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 12,
+                  border: `2px solid ${active ? t.colors[1] : 'var(--border)'}`,
+                  background: active ? `${t.colors[0]}cc` : 'var(--surface)',
+                  cursor: 'pointer', transition: 'all 0.15s',
+                  boxShadow: active ? `0 0 12px ${t.colors[1]}44` : 'none',
+                }}
+              >
+                {/* Mini track preview */}
+                <div style={{
+                  height: 38, borderRadius: 8, marginBottom: 8, overflow: 'hidden',
+                  background: t.colors[0], position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {/* Road strip */}
+                  <div style={{ width: 14, height: '100%', background: t.colors[0], opacity: 0.8, borderLeft: `2px solid ${t.colors[2]}`, borderRight: `2px solid ${t.colors[2]}` }} />
+                  {/* Lane dash */}
+                  <div style={{ position: 'absolute', width: 2, height: 10, background: t.colors[1], borderRadius: 1, top: '30%' }} />
+                  <div style={{ position: 'absolute', width: 2, height: 10, background: t.colors[1], borderRadius: 1, top: '65%' }} />
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: active ? t.colors[1] : 'var(--text)', textAlign: 'center', lineHeight: 1.3 }}>{t.label}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', marginTop: 2 }}>{t.desc}</div>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {/* Topic picker */}
