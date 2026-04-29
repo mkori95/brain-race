@@ -4,6 +4,7 @@ import Phaser from 'phaser'
 import { useGameStore } from '@/store/useGameStore'
 import { PHASER_CONFIG } from '@/game/RaceScene'
 import { raceBridge } from '@/game/raceBridge'
+import { stopEngine } from '@/game/audioEngine'
 
 const TICK_MS = 250
 const CHECKPOINT_BONUS_S = 10
@@ -26,7 +27,12 @@ export default function RaceScreen() {
     const game = new Phaser.Game(PHASER_CONFIG('phaser-race-container'))
     gameRef.current = game
     const t = window.setTimeout(() => startRace(), 300)
-    return () => { clearTimeout(t); game.destroy(true); gameRef.current = null }
+    return () => {
+      clearTimeout(t)
+      stopEngine()          // always kill audio on unmount — don't rely on Phaser lifecycle
+      game.destroy(true)
+      gameRef.current = null
+    }
   }, [startRace])
 
   // ── Race tick ───────────────────────────────────────────────
@@ -55,6 +61,7 @@ export default function RaceScreen() {
 
   const handleQuit = () => {
     if (tickRef.current) clearInterval(tickRef.current)
+    stopEngine()
     quitRace()
     navigate('/home', { replace: true })
   }
