@@ -1,5 +1,5 @@
 # BrainRace — Game Requirements Document
-**Last updated: 2026-04-27**
+**Last updated: 2026-04-29**
 
 ---
 
@@ -55,12 +55,12 @@ Post-Race: Score, XP, Coins, Personal Bests
 
 ---
 
-## Implementation Status (as of 2026-04-27)
+## Implementation Status (as of 2026-04-29)
 
 ### ✅ Phase 1 — Scaffold (complete)
 - Project structure, Vite + React + TypeScript + Phaser 3 + Zustand
 - Firebase Auth + Firestore integration (JS SDK)
-- Onboarding flow (6-step persona wizard)
+- Onboarding flow (5-step persona wizard)
 - Auth screen (sign up / log in)
 - Home screen, Profile screen, Garage screen, Daily Challenge screen
 - Vehicle selection (cars, bikes, trucks) with upgrade panel
@@ -69,7 +69,7 @@ Post-Race: Score, XP, Coins, Personal Bests
 - All TypeScript compiling clean
 
 ### ✅ Phase 2 — Road Fighter Redesign (complete)
-- Pre-race Qualifier: 5 questions, 15s timer, progress dots
+- Pre-race Qualifier: 5 questions, 15s timer, circular SVG progress arc
 - Grid position determined by score vs AI scores `[1, 2, 3, 4]`
 - `GRID_DELAY_MS = { 1:0, 2:800, 3:1600, 4:2400, 5:3200 }`
 - P5 also starts with 80% fuel as additional penalty
@@ -84,207 +84,107 @@ Post-Race: Score, XP, Coins, Personal Bests
 - Questions pool auto-resets when exhausted (pool < 10 → use all)
 - Dev server confirmed working end-to-end in browser
 
-### ⏳ Phase 3 — Visual Overhaul (NEXT — this doc section)
-See below.
+### ✅ Phase 3 — Visual Overhaul (complete as of 2026-04-29)
+All 10 items done — see detail section below.
 
 ### 📋 Phase 4 — Multiplayer (planned)
 See below.
 
 ---
 
-## Phase 3 — Visual Overhaul (Deadly Descent–Inspired)
+## Phase 3 — Visual Overhaul (✅ Complete)
 
 ### Goal
-The current visuals are functional but basic (flat-colored rectangles for cars, plain grey road, minimal effects). The target is a visually exciting, atmospheric game that feels polished and fun — while keeping the top-down 2D perspective in Phaser 3.
+Rich, atmospheric visuals that feel polished and fun — while keeping the top-down 2D perspective in Phaser 3.
 
-**Visual reference:** [Deadly Descent on CrazyGames](https://www.crazygames.com/game/deadly-descent-bzs)
-- Key inspiration: rich particle effects, dynamic destruction feedback, atmospheric environments, detailed vehicles with damage states, intense visual feedback on collisions
+**Visual reference:** Road Fighter (arcade classic) + Deadly Descent (particle richness, atmospheric environments).
 
-Since Deadly Descent is 3D and we're 2D, we achieve equivalent richness through: layered parallax backgrounds, detailed vector-drawn car art, particle systems, neon/glow aesthetic, screen effects, and animated HUD.
-
----
-
-### 3A — Environment & Road
-
-**Current state:** Plain gray rectangle road, no background, basic white lane lines.
-
-**Target:**
-
-#### Road
-- Dark asphalt texture (programmatically drawn with noise/grain) — charcoal with slight blue tint
-- Lane markings: glowing neon-blue dashes (animated, scrolling downward)
-- Road edges: concrete barrier / guardrail drawn on both sides (animated scroll)
-- Road shoulder: dirt/grass strip with color variation
-
-#### Parallax Background Layers (3 layers, different scroll speeds)
-- **Layer 1 (slowest, 20% road speed):** Sky gradient — deep navy-to-purple night sky with subtle stars
-- **Layer 2 (40% road speed):** Distant cityscape silhouette OR mountain ridgeline (varies by track theme)
-- **Layer 3 (70% road speed):** Roadside elements — streetlights with glow halos, billboard frames, palm trees, concrete pillars
-
-#### Track Themes (3 total, rotate by race or player selects)
-1. **Night City** — neon city skyline, orange streetlights, wet road reflection
-2. **Desert Highway** — sunset orange sky, sand dunes, cacti, dry cracked road
-3. **Mountain Pass** — twilight purple sky, pine tree silhouettes, snow-capped peaks
-
-#### Road Surface Effects
-- Tire skid marks: drawn at crash/oil slip points, fade over 3s
-- Speed distortion: at high speed (>400px/s), subtle vertical stretch/blur on road lines
-- Wet road effect (Night City): faint light reflection ripple on asphalt
+### What Was Delivered
 
 ---
 
-### 3B — Vehicle Art
+### 3A — Environment & Road ✅
+- Dark asphalt road with subtle banding; edge white lines
+- **Track themes (3, player-selectable in RaceSetupScreen):**
+  1. **Night City** — dark navy sky + stars + neon horizon, dark asphalt, cyan lane dashes, red/white curbs, city building silhouettes with glowing windows, lamp posts + urban scenery
+  2. **Desert Highway** — warm orange-amber sky with sun disc, sandy tan road, orange curbs, warm yellow dashes, mesa/dune background, cacti + rocks on roadside
+  3. **Mountain Pass** — deep purple-blue sky + stars, gray concrete road, lavender dashes, white/silver curbs, snow-capped mountain peaks background, pine trees + snow rocks
+- Theme config drives: sky gradient, road color, curb color pair, lane dash color, guardrail tint, background element draw function, near scenery draw function
+- Animated red/white (or themed) curb stripes, scrolling guardrail posts + beam with colored glow tint
+- `raceBridge.trackTheme` set from store before race; `RaceScene.create()` builds `ThemeConfig` from it
 
-**Current state:** Colored rectangles with simple window/wheel shapes.
+### 3B — Vehicle Art ✅
+- **Player car:** headlight projection cones, drop shadow, windshield, hood sheen, rear spoiler, exhaust trail, nitro triple-flame (purple/cyan/white core), crash spin + lateral drift
+- **Traffic sedan:** raised cabin, windshield, taillights, side wheels
+- **Oncoming racer:** low profile, racing stripe, bright forward headlights with glow halos
+- **Truck:** cab + trailer distinction, exhaust stacks, 6-wheel layout
+- All vehicles: `CAR_W=20, CAR_H=34` (smaller = better gameplay visibility)
+- Hit traffic car is destroyed/spliced immediately on collision
 
-**Target:** Detailed top-down vector-drawn sprites for each vehicle category.
-
-#### Player Car
-- Top-down car body drawn in Phaser Graphics with:
-  - Distinct hood, roof, trunk shape (not just a rectangle)
-  - Side mirrors
-  - Windshield highlight (lighter glass rectangle with reflection glint)
-  - Headlights: two white glow ovals at front, cast a subtle cone of light on road ahead
-  - Taillights: two red glow ovals at rear
-  - Underside shadow: dark semi-transparent oval beneath car
-- Color: driven by player's selected vehicle color from garage
-- Damage state: after a crash, car gets a subtle tilt and spark residue overlay for 1s
-- Exhaust particle trail: continuous small grey smoke puffs from rear
-
-#### Traffic Cars
-- `slow` type: standard sedan silhouette, earth tones (grey, white, dark red)
-- `oncoming` type: bright yellow/lime, aggressive front grille shape, headlights blazing toward player
-- `truck` type: larger rectangle with cab + trailer distinction, darker colors, big side mirrors
-- All traffic also gets underside shadow, headlights/taillights
-
-#### Bikes (when player selects bike vehicle)
-- Narrower profile (1/3 lane width)
-- Visible wheel outlines front and rear
-- Rider helmet shape on top
-- Slightly faster lean animation on lane change
-
----
-
-### 3C — Particle Systems
-
-**Current state:** Basic spark particles on crash, that's it.
-
-**Target:** Full particle vocabulary:
-
+### 3C — Particle Systems ✅
 | Event | Effect |
 |---|---|
-| Player exhaust (always) | Tiny grey/white smoke puffs from rear, fade over 0.4s |
-| Nitro activated | Blue flame burst from rear + trailing blue sparks for 3s |
-| Coin collected | Gold particle burst (8–12 particles, fan outward, scale up then fade) |
-| Fuel collected | Green particle burst with fuel-drop shape |
-| Crash (soft) | Orange spark burst, small debris chips fly outward |
-| Crash (hard) | Large orange+red spark explosion, smoke cloud, 3 debris chunks tumble |
-| Oil slick hit | Black smoke puff + purple swirl around car during spin |
-| Near miss | Brief white flash on car edge + "WHOA!" floating text |
-| Fuel critical (<20%) | Red pulse glow around fuel bar, warning particles |
-| Traffic car offscreen | Pop/squash animation as it exits bottom |
+| Player exhaust (continuous) | Grey/blue smoke puffs from rear; nitro = blue flame particles |
+| Nitro active | Triple exhaust color: purple / cyan / white core; 3s continuous burst |
+| Coin collected | Gold/amber radial burst (10 particles) |
+| Fuel collected | Green burst (8 particles) |
+| Crash (soft) | Orange spark burst (10 sparks) + speed penalty |
+| Crash (hard) | Large orange+red spark burst (20 sparks) + heavy penalty |
+| Oil slick | Purple smoke puffs (8 large slow particles) |
+| Score float | "+50", "FUEL!", "NITRO!" floating text rising from pickup position |
 
-**Implementation:** Phaser 3 `ParticleEmitter` with per-event config objects. Pre-create all emitters in `RaceScene.create()`, trigger them from the event callbacks already wired into the bridge.
-
----
-
-### 3D — Screen & Camera Effects
-
+### 3D — Screen & Camera Effects ✅
 | Trigger | Effect |
 |---|---|
-| Crash (any) | Camera shake (duration scales with severity: 400ms soft, 900ms hard) |
-| Crash (hard) | Camera flash (orange tint, 200ms) |
-| Nitro start | Brief screen-edge vignette darkens (speed tunnel effect) |
-| Speed ≥ 400px/s | Motion lines: 8–10 vertical white streaks on screen edges, opacity tied to speed |
-| Fuel hits 0 | Camera flash (red), then game over |
-| Qualifier P1 result | Confetti particle shower on QualiScreen result card |
+| Any crash | Camera shake (400ms soft, ~900ms hard) |
+| Hard crash | Camera flash (orange-red tint) |
+| Nitro active | Cyan glow vignette on all 4 screen edges |
+| Speed > 340 px/s | Radial speed lines (20 streaks, opacity + length tied to speed) |
+| Fuel < 15% | Pulsing red border around full screen |
+| Checkpoint hit | Green camera flash + "+CHECKPOINT +10s" notification |
+| Finish line crossed | White camera flash + "🏁 FINISH!" notification |
+| Qualifier P1 | Confetti shower (36 pieces, random colors + sizes) |
 
----
+### 3E — HUD ✅
+- **Top strip (React overlay):** ✕ quit button, P{n}·delay label, centered countdown timer (red + pulse when ≤15s), score, checkpoint count badge
+- **In-canvas HUD:**
+  - Segmented fuel gauge (10 segments, color-coded green→yellow→red)
+  - Speedometer text box (km/h, positioned right of fuel bar)
+  - Nitro bar (under speed box, shown when nitro active)
+  - Mini-map (14×110px top-right, player dot + 4 AI dots + checkpoint marks)
+  - Pickup notification badge (slides up from top-center, fades after 1.2–2.2s)
+  - Score float text at pickup position
 
-### 3E — HUD Redesign
+### 3F — Qualifier Screen Polish ✅
+- Circular SVG countdown timer (r=36, color transitions green→yellow→red)
+- Staggered answer card slide-in animations
+- Correct answer: green background + `scorePop` bounce + green key badge
+- Wrong answer: red background + `shake` animation + red key badge
+- Timeout: correct answer highlighted with arrow indicator
+- Results page: confetti on P1, grid position emoji + color, question breakdown cards
+- Back button ("← Home") in question header and results page
 
-**Current state:** Text-only HUD at top (`P1 — 74s — 🏆 902`), fuel bar at bottom-left.
-
-**Target:** Styled, animated HUD panels that don't block the road.
-
-#### Top HUD Strip
-- Semi-transparent dark bar across full width
-- Left: Position badge (`P1` in gold/silver/bronze/grey, colored by position)
-- Center: Race timer with clock icon, large font
-- Right: Score with animated +N ticker when score increases
-
-#### Fuel Gauge (bottom-left panel)
-- Vertical bar with segmented sections (10 segments)
-- Color transitions: green → yellow (50%) → orange (30%) → red pulse (20%)
-- "FUEL" label above, percentage below
-- Warning animation: red glow + "LOW FUEL" text flash when <20%
-
-#### Speed Indicator (bottom-right)
-- Small arc speedometer graphic (like a real gauge)
-- Needle animates smoothly with current speed
-- KM/H label below value
-
-#### Pickup Flash Notifications (center-left, stack upward)
-- When pickup collected: small animated badge slides in from left
-  - 🪙 +50 (gold) / ⛽ +Fuel (green) / ⚡ NITRO (blue) / 💀 OIL! (red)
-  - Fades out after 1.2s
-
-#### Grid Position Indicator (top-left, shown first 10s of race)
-- Large animated banner: "P1 — POLE POSITION — NO DELAY 🚀" slides down then fades
-
----
-
-### 3F — Qualifier Screen Visual Polish
-
-**Current state:** Functional but plain card layout.
-
-**Target:**
-- Dark card background with racing stripe accent
-- Question timer: circular progress arc (not just a bar), color transitions red as time runs out
-- Answer feedback: selected answer card animates (green bounce for correct, red shake for wrong)
-- Between questions: brief "car zooming past" transition wipe
-- Results card: animated grid position reveal with checkered flag confetti if P1
-
----
-
-### 3G — Sound Design
-
+### 3G — Sound Design ✅
+All sounds implemented in `src/game/audioEngine.ts` via Web Audio API (no audio files):
 | Event | Sound |
 |---|---|
-| Correct qualifier answer | Short positive chime + "ding" |
-| Wrong qualifier answer | Low buzzer |
-| Race countdown (3-2-1-GO) | Deep engine rev building to GO horn |
-| Coin collected | Bright coin ping |
-| Fuel collected | Satisfying "glug" |
-| Nitro activated | Engine roar spike |
-| Near miss | Doppler whoosh |
-| Crash soft | Bump thud |
-| Crash hard | Metal crunch + skid |
-| Race win | Short victory fanfare |
-| Race end (not 1st) | Engine-down wind-off |
-| Fuel low | Pulsing warning beep |
-| Fuel empty / game over | Engine splutter then silence |
+| Engine (continuous) | Oscillator hum, frequency tracks speed |
+| Coin | Bright ping (880Hz) |
+| Fuel | Lower "glug" tone |
+| Nitro | Rising engine roar spike |
+| Crash (soft) | Low thud burst |
+| Crash (hard) | Harsher low-frequency hit |
+| Oil skid | Descending skid tone |
 
-- Sounds off by default; toggle in Settings
-- All sounds generated via Phaser's Web Audio API (no external audio files needed initially — use procedural tones or a small sound pack)
-- Haptics via Capacitor Haptics when running mobile
+Audio lifecycle: lazy-init on first user gesture; `stopEngine()` called explicitly in `RaceScreen` useEffect cleanup AND `handleQuit()` — not just via Phaser lifecycle — to guarantee silence on all exit paths.
 
----
-
-### Phase 3 Implementation Priority
-
-```
-1. Parallax background (sky + far layer + near layer) — biggest visual win
-2. Road texture + glowing lane markings + guardrails
-3. Player car detailed sprite (proper car shape, headlights, shadow, exhaust trail)
-4. Traffic car improved sprites (distinct shapes per type)
-5. Particle systems (crash, nitro, coin, fuel)
-6. Screen effects (camera shake already done — add motion lines + vignette)
-7. HUD redesign (fuel gauge visual, speed arc, score ticker)
-8. Qualifier visual polish (circular timer, answer animations, confetti)
-9. Sound effects
-10. Track themes (Night City first, then Desert + Mountain)
-```
+### Phase 3 Additional Fixes Delivered
+- **Coin pickup collision fix:** `drawPickup` draws at local `cy=0`; `g.y = item.y` already positions in world space. Previous double-positioning placed visuals off-screen.
+- **Qualifier deferred-answer pattern:** `pendingRef` stores answer locally; Zustand `submitQualiAnswer` deferred 900ms to allow animation to run against the correct question index.
+- **`quitRace()` store action:** resets state without awarding XP/coins/streak. Quit dialog in `RaceScreen` with "No XP, coins, or streak will be saved" message.
+- **Back buttons:** on QualiScreen active question + results page; navigates to `/home` and resets race state.
+- **Checkpoints:** 4 checkpoints at distance 350/750/1200/1800 units (+10s each); finish line at 2500. Neon green lines scroll toward player (1 game unit = 20 screen pixels). Finish line = checkerboard pattern.
+- **Mini-map:** top-right 14×110px panel; player dot (theme color), 4 simulated AI dots, checkpoint markers.
 
 ---
 
@@ -630,11 +530,11 @@ FIREBASE_ADMIN_PRIVATE_KEY=...
 All source file edits must go to the **worktree**, not the main project dir:
 
 ```
-✅ /brain-race/.claude/worktrees/wonderful-goldwasser-a14e3d/src/...
+✅ /brain-race/.claude/worktrees/dreamy-heisenberg-012535/src/...
 ❌ /brain-race/src/...
 ```
 
-Git branch: `claude/wonderful-goldwasser-a14e3d`
+Git branch: `claude/dreamy-heisenberg-012535`
 
 ---
 

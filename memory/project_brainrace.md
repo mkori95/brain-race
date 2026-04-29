@@ -4,80 +4,120 @@ description: Core goals, confirmed tech stack, architecture decisions, and curre
 type: project
 ---
 
-BrainRace is a trivia-powered racing game. Answer questions correctly/fast → speed up. Wrong → slow down. Race against 4 AI opponents over 90 seconds.
+BrainRace is a trivia-powered racing game — Road Fighter style top-down vertical scroller. A pre-race qualifier quiz (5 questions) determines grid position and start delay. The race is pure reflex driving: dodge traffic, collect pickups, manage fuel, hit checkpoints.
 
 **Why:** User wants to build a fun, personalized knowledge game playable by anyone from kids to developers.
 
-**Platform decision:** Browser-first (React + Vite), then wrap with Capacitor for iOS/Android. No rewrite needed.
+**Platform:** Browser-first (React + Vite), Capacitor-wrappable for iOS/Android. No rewrite needed.
 
-**Confirmed tech stack:**
+**Tech stack:**
 - React + Vite + TypeScript (frontend)
-- Phaser.js (game engine — HTML5 canvas, browser + Capacitor compatible)
-- Firebase Auth (email for now, Google later) + Firestore (JS SDK, free Spark plan — no Cloud Functions)
-- Vercel (hosting + serverless API routes — free tier)
-- Claude Haiku (`claude-haiku-4-5`) as default model via `CLAUDE_MODEL` env var (swappable)
-- Zustand for state management
-- Capacitor (future mobile wrapping)
+- Phaser 3 (WebGL, top-down scroller — `src/game/RaceScene.ts`)
+- Firebase Auth (email/password) + Firestore (JS SDK, free Spark plan)
+- Vercel (hosting + serverless API routes)
+- Claude Haiku (`claude-haiku-4-5`) as default via `CLAUDE_MODEL` env var (swappable)
+- Zustand (`src/store/useGameStore.ts`)
+- Web Audio API (`src/game/audioEngine.ts`) — procedural sounds, no audio files
+- Capacitor (future mobile)
 
 **Key architecture decisions:**
-- Claude API key is NEVER in the browser — proxied via Vercel serverless function `/api/questions`
-- Coins are NEVER written by the client — validated and written server-side via `/api/coins`
-- 20 questions pre-fetched before race starts (no mid-race API latency)
-- Firebase JS SDK used (not @react-native-firebase) — works in browser, no native build needed
-- All infrastructure is free; Claude API cost ~$0.001/race at Haiku pricing
-- Phaser ↔ React bridge: `src/game/raceBridge.ts` — shared mutable object React writes, Phaser reads every frame
+- Claude API key NEVER in browser — proxied via `/api/questions` Vercel function
+- Coins NEVER set by client — validated server-side via `/api/coins` with Firebase Admin
+- `raceBridge` pattern: `src/game/raceBridge.ts` — shared mutable singleton; React writes config before race, Phaser writes runtime state every frame
+- Questions pool resets when `available.length < 10`
+- `pendingRef` pattern in QualiScreen: defers `submitQualiAnswer` 900ms so correct/wrong animations run against the right question (Zustand updates synchronously — reading immediately after gives new value)
+- `stopEngine()` called in both RaceScreen useEffect cleanup AND `handleQuit()` — not just via Phaser lifecycle
 
 **Git remote:** git@github.com:mkori95/brain-race.git (SSH, main branch)
 
-**All code, config, deployment files must live inside `/brain-race/` folder.**
+---
+
+## Game Flow
+
+```
+Race Setup (topic + track theme)
+        ↓
+Qualifier (5 Qs, 15s each) → Grid Position 1–5
+        ↓
+90s Road Fighter Race (traffic, pickups, fuel, checkpoints)
+        ↓
+Post-Race (score, XP, coins, streak)
+```
 
 ---
 
-## Build Status (as of 2026-04-27) — PHASE 1 COMPLETE
+## Build Status — PHASE 3 COMPLETE (2026-04-29)
 
-### ✅ Files written (all in brain-race/):
-- `package.json` — all deps (react, phaser, firebase, zustand, @anthropic-ai/sdk, firebase-admin)
-- `tsconfig.json`, `tsconfig.node.json`, `vite.config.ts`
-- `vercel.json` — build + rewrite config
-- `.env.example` — full template with all required vars
-- `index.html`
-- `src/types/index.ts` — all TypeScript interfaces
-- `src/data/vehicles.ts` — 15 vehicles (cars/bikes/trucks) with full stats
-- `src/data/fallback-questions.json` — 30 offline fallback questions
-- `src/services/firebase.ts` — Firebase init
-- `src/services/auth.ts` — signUp, signIn, signOut, onAuthChange, getCurrentIdToken
-- `src/services/firestore.ts` — createUserProfile, getUserProfile, updatePersona, updateProgress, etc.
-- `src/services/questions.ts` — fetchQuestions with offline fallback
-- `src/store/useGameStore.ts` — full Zustand store (race lifecycle, speed mechanics, XP/coins)
-- `src/game/raceBridge.ts` — React→Phaser shared bridge object
-- `src/game/RaceScene.ts` — Phaser scene: 5-lane top-down track, vehicle rendering, nitro particles
-- `src/index.css` — complete dark racing theme with all component styles
-- `src/main.tsx`, `src/App.tsx` — entry point + router + auth guard
-- `src/screens/OnboardingScreen.tsx` — 5-step persona wizard
-- `src/screens/AuthScreen.tsx` — email login/signup
-- `src/screens/HomeScreen.tsx` — dashboard with XP bar, coins, daily challenge
-- `src/screens/RaceSetupScreen.tsx` — topic picker (20 quick topics + custom input)
-- `src/screens/VehicleSelectionScreen.tsx` — buy & upgrade vehicles
-- `src/screens/RaceScreen.tsx` — main game (Phaser canvas + React overlay HUD + question card)
-- `src/screens/PostRaceScreen.tsx` — results + wrong answer review with explanations
-- `src/screens/GarageScreen.tsx` — vehicle overview
-- `src/screens/DailyChallengeScreen.tsx` — daily topic race
-- `src/screens/ProfileScreen.tsx` — edit persona & interests
-- `api/questions.ts` — Vercel serverless function: Claude API proxy with persona-aware prompt
-- `api/coins.ts` — Vercel serverless function: coin validation with Firebase Admin SDK
-- `README.md` — full project documentation
+### ✅ All screens built and working:
+- OnboardingScreen (5-step persona wizard)
+- AuthScreen (email login/signup)
+- HomeScreen (streak banner, 7-day dot progress, daily challenge card)
+- RaceSetupScreen (topic picker, track theme selector, vehicle preview)
+- VehicleSelectionScreen (buy + upgrade)
+- QualiScreen (circular SVG timer, answer animations, confetti on P1, back button)
+- RaceScreen (Phaser canvas + React overlay HUD, quit dialog)
+- PostRaceScreen (streak milestone, XP bar, coin breakdown)
+- GarageScreen (vehicle overview, personal bests)
+- DailyChallengeScreen (daily topic, streak tracking)
+- ProfileScreen (edit persona)
 
-### ⏳ NEXT SESSION — pick up here:
-1. **Run `npm install`** — user must approve first (packages: react, phaser, firebase, zustand, @anthropic-ai/sdk, firebase-admin, @vercel/node, vite, typescript)
-2. **Fix TypeScript errors** — run `npx tsc --noEmit` and fix any type issues
-3. **Run `npm run dev`** — verify app starts on localhost:3000
-4. **Fix any runtime errors** — test the full flow: onboarding → auth → home → race
-5. **Firebase setup** — user needs to create Firebase project and add keys to .env
-6. **Vercel deploy** — once working locally
-7. **Test question generation** — with real Anthropic API key
+### ✅ Phase 3 Visual Overhaul — all 10 items done:
+1. Parallax background: sky (depth 0), bg layer at 18% speed (depth 1), near scenery (depth 4)
+2. Road: theme-aware asphalt + banding + animated curbs + scrolling guardrail posts
+3. Player car: headlights, shadow, exhaust, nitro flame, crash spin + lateral drift
+4. Traffic: sedan, oncoming racer, truck — CAR_W=20/CAR_H=34; hit car destroyed on collision
+5. Particles: crash sparks, nitro exhaust, coin/fuel/nitro bursts, oil smoke, score floats
+6. Screen FX: speed lines, fuel border flash, nitro vignette, camera shake + flash
+7. HUD: 10-segment fuel gauge, speedometer, mini-map (14×110px), pickup notifications
+8. Qualifier: circular SVG timer, scorePop/shake animations, colored key badges, confetti
+9. Sound: Web Audio engine hum, coin, fuel, nitro, crash, oil — stopEngine() lifecycle fixed
+10. Track themes: Night City / Desert Highway / Mountain Pass (sky + road + curbs + dashes + bg + scenery)
 
-### Known issue to fix in next session:
-- `useGameStore.ts` has `_advanceQuestion` defined twice (as interface method and as stub at bottom) — needs cleanup
-- The store's `_advanceQuestion` internal method pattern needs to be refactored to a cleaner closure pattern
+### ✅ Bug fixes:
+- Coin pickup: drawPickup draws at local cy=0 (g.y already = world position)
+- Qualifier 4/5 count bug: pendingRef defers store update past animation window
+- quitRace() action: resets without awarding XP/coins/streak
+- Back buttons on QualiScreen; quit dialog in RaceScreen
+- Checkpoints: 350/750/1200/1800 distance units (+10s each), finish at 2500
+- Audio: stopEngine() in RaceScreen cleanup + handleQuit()
 
-**How to apply:** Always check this file at session start to know where we left off. Run npm install first thing.
+### ✅ XP/Streak system:
+- Daily streak: consecutive days detected, streakBonus = 300 + min(streak-1, 10) × 20
+- XP: +50/race, +200 for P1, +20/correct qualifier answer
+- Levels: rookie→amateur→pro→expert→legend (0/500/1500/4000/10000 XP)
+
+---
+
+## Key constants (RaceScene.ts)
+- Canvas: 480×560, 5 lanes, ROAD_W=270
+- PLAYER_Y = 0.82 × CANVAS_H
+- BASE_SPEED=200, MAX_SPEED=520, SPEED_RAMP=+25/30s
+- CAR_W=20, CAR_H=34 (player bw=24, bh=42)
+- Checkpoints at distance 350/750/1200/1800/2500 (last = finish)
+- 1 game-distance-unit = 20 screen pixels
+- RACE_DURATION_S=90, QUALI_QUESTION_COUNT=5
+
+## raceBridge fields (React → Phaser, set before race)
+- gridPosition, startDelayMs, playerLevel, playerColor, trackTheme
+
+## raceBridge fields (Phaser → React, updated each frame)
+- fuelLevel, raceScore, distanceTraveled, gameOver, raceFinished, playerLane
+- onCoinCollected, onNitroCollected, onFuelCollected, onCrash, onCheckpoint (callbacks)
+
+---
+
+## CRITICAL — worktree path
+All edits must go to the **worktree**, not the main project dir:
+- ✅ `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/.claude/worktrees/dreamy-heisenberg-012535/src/...`
+- ❌ `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/src/...`
+
+Git branch: `claude/dreamy-heisenberg-012535`
+
+---
+
+## Next up (Phase 4)
+- Level-based AI difficulty (traffic density/speed ceiling by playerLevel)
+- Multiplayer via Firebase Realtime Database (ghost overlays, shared leaderboard)
+- Google Sign-In
+- Ghost mode (race your personal best)
+- Topic leaderboards
