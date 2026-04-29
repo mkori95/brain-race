@@ -80,6 +80,7 @@ interface Particle {
 interface DashMark { g: Phaser.GameObjects.Graphics; lane: number; y: number }
 interface SceneryItem { g: Phaser.GameObjects.Graphics; y: number }
 interface CityBuilding { g: Phaser.GameObjects.Graphics; y: number; side: 'left'|'right'; seed: number }
+interface CheckpointData { distance: number; triggered: boolean; isFinish: boolean }
 
 // ── Scene ──────────────────────────────────────────────────────
 export default class RaceScene extends Phaser.Scene {
@@ -95,19 +96,25 @@ export default class RaceScene extends Phaser.Scene {
   private pickupNotif: { text: string; color: number; life: number } | null = null
   private fuelWarningPhase = 0
 
-  private dashMarks:    DashMark[]     = []
-  private scenery:      SceneryItem[]  = []
-  private cityBuildings:CityBuilding[] = []
-  private traffic:      TrafficCar[]   = []
-  private pickups:      PickupItem[]   = []
-  private particles:    Particle[]     = []
+  private dashMarks:    DashMark[]      = []
+  private scenery:      SceneryItem[]   = []
+  private cityBuildings:CityBuilding[]  = []
+  private traffic:      TrafficCar[]    = []
+  private pickups:      PickupItem[]    = []
+  private particles:    Particle[]      = []
+  private checkpoints:  CheckpointData[] = []
   private scoreFloats:  { x:number; y:number; text:Phaser.GameObjects.Text; life:number }[] = []
+  private speedText!:   Phaser.GameObjects.Text
+  private notifText!:   Phaser.GameObjects.Text
 
   private playerLane        = 2
   private playerScreenX     = CANVAS_W / 2
   private laneChangeCooldown = 0
   private spinDuration      = 0
   private spinAngle         = 0
+  private spinDirection     = 1
+  private crashDriftX       = 0
+  private crashDriftVX      = 0
   private invincible        = 0
   private crashRecoverT     = 0
 
@@ -167,6 +174,22 @@ export default class RaceScene extends Phaser.Scene {
 
     this.setupKeys()
     this.setupSpawnEvents()
+
+    // Checkpoints + finish line (distance in game units)
+    this.checkpoints = [
+      { distance: 350,  triggered: false, isFinish: false },
+      { distance: 750,  triggered: false, isFinish: false },
+      { distance: 1200, triggered: false, isFinish: false },
+      { distance: 1800, triggered: false, isFinish: false },
+      { distance: 2500, triggered: false, isFinish: true  },
+    ]
+
+    // HUD text objects
+    const textStyle = { fontSize: '11px', color: '#ffffff', fontStyle: 'bold' as const,
+      shadow: { x:1, y:1, color:'#000000', blur:2, fill:true } }
+    this.speedText = this.add.text(0, 0, '', textStyle).setDepth(10).setOrigin(0.5, 0.5)
+    this.notifText = this.add.text(0, 0, '', { ...textStyle, fontSize: '13px', align: 'center' })
+      .setDepth(10).setOrigin(0.5, 0)
 
     // Resume / start audio on first interaction
     this.input.once('pointerdown', () => { resumeAudio(); startEngine() })
@@ -516,7 +539,8 @@ export default class RaceScene extends Phaser.Scene {
   private drawPickup(item: PickupItem) {
     const g = item.g
     g.clear()
-    const cx = this.laneToX(item.lane), cy = item.y
+    // NOTE: g.y = item.y is set by scrollPickups, so local coords use cy=0 as center
+    const cx = this.laneToX(item.lane), cy = 0
 
     if (item.type === 'coin') {
       g.fillStyle(C.coin, 0.18); g.fillCircle(cx, cy, 16)
@@ -543,7 +567,9 @@ export default class RaceScene extends Phaser.Scene {
   private drawPlayerCar(spin: number) {
     const g = this.playerGfx
     g.clear()
-    const x = this.playerScreenX, y = PLAYER_Y
+    const rawX = this.playerScreenX + this.crashDriftX
+    const x = Phaser.Math.Clamp(rawX, ROAD_LEFT + 14, ROAD_RIGHT - 14)
+    const y = PLAYER_Y
     const color = raceBridge.playerColor || 0xff6b35
     const bw = 24, bh = 42
 
@@ -693,9 +719,40 @@ export default class RaceScene extends Phaser.Scene {
       g.fillRect(ROAD_LEFT - 20, py - 3, 6, 10)
       g.fillRect(ROAD_RIGHT + 14, py - 3, 6, 10)
     }
+
+    // Checkpoint / finish line visuals scrolling toward player
+    // 1 game-distance-unit = 20 screen pixels (derived from distance += speed*ds*0.05)
+    for (const cp of this.checkpoints) {
+      if (cp.triggered) continue
+      const distRemaining = cp.distance - this.distance
+      if (distRemaining < 0 || distRemaining > 23) continue
+      const screenY = PLAYER_Y - distRemaining * 20
+      if (screenY < -12 || screenY > CANVAS_H + 8) continue
+
+      if (cp.isFinish) {
+        const tileW = 14, tileH = 8
+        const tiles = Math.floor(ROAD_W / tileW)
+        for (let t = 0; t < tiles; t++) {
+          g.fillStyle(t % 2 === 0 ? 0xffffff : 0x111111, 1)
+          g.fillRect(ROAD_LEFT + t * tileW, screenY - tileH / 2, tileW, tileH)
+        }
+        g.fillStyle(0xffffff, 0.25)
+        g.fillRect(ROAD_LEFT, screenY - tileH / 2 - 2, ROAD_W, tileH + 4)
+      } else {
+        // Neon green checkpoint line
+        g.fillStyle(0x00ff88, 0.12)
+        g.fillRect(ROAD_LEFT, screenY - 6, ROAD_W, 12)
+        g.fillStyle(0x00ff88, 0.9)
+        g.fillRect(ROAD_LEFT, screenY - 1, ROAD_W, 2)
+        // Arrow indicators on curbs
+        g.fillStyle(0x00ff88, 0.85)
+        g.fillTriangle(ROAD_LEFT + 22, screenY - 7, ROAD_LEFT + 30, screenY, ROAD_LEFT + 22, screenY + 7)
+        g.fillTriangle(ROAD_RIGHT - 22, screenY - 7, ROAD_RIGHT - 30, screenY, ROAD_RIGHT - 22, screenY + 7)
+      }
+    }
   }
 
-  // ── HUD (segmented fuel, speed, pickup notif) ───────────────
+  // ── HUD (segmented fuel, speedometer, mini-map, pickup notif) ─
   private renderHUD(ds: number) {
     const g = this.hudGfx
     g.clear()
@@ -706,11 +763,9 @@ export default class RaceScene extends Phaser.Scene {
     const totalW = segments * segW + (segments - 1) * segGap
     const barX = 12, barY = CANVAS_H - 22
 
-    // Background pill
+    // ── Fuel bar ──
     g.fillStyle(0x000000, 0.65)
     g.fillRoundedRect(barX - 4, barY - 4, totalW + 8, segH + 8, 5)
-
-    // Fuel label
     const litCount = Math.round(pct * segments)
     for (let i = 0; i < segments; i++) {
       const lit = i < litCount
@@ -718,40 +773,85 @@ export default class RaceScene extends Phaser.Scene {
       const sx = barX + i * (segW + segGap)
       g.fillStyle(fuelColor, lit ? 1 : 0.18)
       g.fillRoundedRect(sx, barY, segW, segH, 2)
-      // Glow on lit segments
       if (lit && pct < 0.3) {
         g.fillStyle(0xff3300, 0.12)
         g.fillRoundedRect(sx - 1, barY - 1, segW + 2, segH + 2, 3)
       }
     }
 
-    // Speed display (bottom right of fuel bar)
+    // ── Speedometer box ──
     const speedKmh = Math.round(this.gameSpeed * 0.6)
-    g.fillStyle(0x000000, 0.55)
-    g.fillRoundedRect(barX + totalW + 8, barY - 2, 52, segH + 4, 4)
+    const spdX = barX + totalW + 8
+    g.fillStyle(0x000000, 0.65)
+    g.fillRoundedRect(spdX, barY - 4, 54, segH + 8, 5)
+    this.speedText.setPosition(spdX + 27, barY + segH / 2)
+    this.speedText.setText(`${speedKmh} km/h`)
 
-    // Nitro indicator (cyan stripe under speed)
+    // Nitro bar under speed box
     if (this.nitroTimer > 0) {
-      const nitroPct = Math.min(1, this.nitroTimer / 3000)
-      g.fillStyle(0x00ccff, 0.85)
-      g.fillRoundedRect(barX + totalW + 8, barY + segH + 4, 52 * nitroPct, 3, 1)
+      const np = Math.min(1, this.nitroTimer / 3000)
       g.fillStyle(0x00ccff, 0.18)
-      g.fillRoundedRect(barX + totalW + 8, barY + segH + 4, 52, 3, 1)
+      g.fillRoundedRect(spdX, barY + segH + 6, 54, 3, 1)
+      g.fillStyle(0x00ccff, 0.9)
+      g.fillRoundedRect(spdX, barY + segH + 6, 54 * np, 3, 1)
     }
 
-    // Pickup notification badge (top-right area of canvas)
+    // ── Mini-map (top-right) ──
+    const FINISH_DIST = 2500
+    const mapX = CANVAS_W - 22, mapY = 8
+    const mapW = 14, mapH = 110
+    g.fillStyle(0x000000, 0.55)
+    g.fillRoundedRect(mapX - 3, mapY - 3, mapW + 6, mapH + 6, 4)
+    // Track strip
+    g.fillStyle(0x222235, 1)
+    g.fillRect(mapX + mapW / 2 - 3, mapY, 6, mapH)
+    // Checkpoint marks
+    for (const cp of this.checkpoints) {
+      const cpMapY = mapY + (cp.distance / FINISH_DIST) * mapH
+      if (cp.isFinish) {
+        g.fillStyle(0xffffff, 0.9); g.fillRect(mapX, cpMapY - 1, mapW, 2)
+      } else {
+        const col = cp.triggered ? 0x225533 : 0x00ff88
+        g.fillStyle(col, 0.7); g.fillRect(mapX + 2, cpMapY, mapW - 4, 1)
+      }
+    }
+    // Simulated AI positions (grid positions 1,2,4,5 → start delays 0,800,2400,3200ms)
+    const aiColors  = [0xff5555, 0x5599ff, 0xffcc22, 0xcc55cc]
+    const aiDelayMs = [0, 800, 2400, 3200]
+    for (let i = 0; i < 4; i++) {
+      const aiStart = Math.max(0, this.elapsedS - aiDelayMs[i] / 1000)
+      const aiDist  = aiStart * 15 * (1.05 - i * 0.06) + Math.sin(this.elapsedS + i) * 20
+      const aiMapY  = mapY + Math.min(1, Math.max(0, aiDist / FINISH_DIST)) * mapH
+      g.fillStyle(aiColors[i], 0.75)
+      g.fillCircle(mapX + (i % 2 === 0 ? 3 : mapW - 3), aiMapY, 2.5)
+    }
+    // Player dot
+    const playerMapY = mapY + Math.min(1, this.distance / FINISH_DIST) * mapH
+    g.fillStyle(raceBridge.playerColor || 0xff6b35, 1)
+    g.fillCircle(mapX + mapW / 2, playerMapY, 4)
+    g.fillStyle(0xffffff, 0.9)
+    g.fillCircle(mapX + mapW / 2, playerMapY, 1.5)
+
+    // ── Pickup notification ──
     if (this.pickupNotif) {
       this.pickupNotif.life -= ds * 1000
-      const a = Math.min(1, this.pickupNotif.life / 400)
       if (this.pickupNotif.life > 0) {
-        const notifY = 12 + (1 - a) * -8
-        const txt = this.pickupNotif.text
-        const notifW = txt.length * 8 + 20
-        g.fillStyle(this.pickupNotif.color, a * 0.9)
-        g.fillRoundedRect(CANVAS_W - notifW - 10, notifY, notifW, 22, 6)
+        const a = Math.min(1, this.pickupNotif.life / 500)
+        const riseY = (1 - Math.min(1, this.pickupNotif.life / 2000)) * -12
+        const notifW = this.pickupNotif.text.length * 8 + 22
+        const nx = ROAD_LEFT + ROAD_W / 2 - notifW / 2
+        const ny = 8 + riseY
+        g.fillStyle(this.pickupNotif.color, a * 0.88)
+        g.fillRoundedRect(nx, ny, notifW, 24, 6)
+        this.notifText.setPosition(ROAD_LEFT + ROAD_W / 2, ny + 4)
+        this.notifText.setText(this.pickupNotif.text)
+        this.notifText.setAlpha(a)
       } else {
         this.pickupNotif = null
+        this.notifText.setAlpha(0)
       }
+    } else {
+      this.notifText.setAlpha(0)
     }
   }
 
@@ -890,10 +990,30 @@ export default class RaceScene extends Phaser.Scene {
     }
   }
 
+  private tickCheckpoints() {
+    if (!this.raceStarted) return
+    for (const cp of this.checkpoints) {
+      if (!cp.triggered && this.distance >= cp.distance) {
+        cp.triggered = true
+        if (cp.isFinish) {
+          raceBridge.raceFinished = true
+          this.pickupNotif = { text: '🏁 FINISH!', color: 0xffffff, life: 3000 }
+          this.cameras.main.flash(500, 255, 255, 255, false)
+        } else {
+          raceBridge.onCheckpoint?.()
+          this.pickupNotif = { text: '✓ CHECKPOINT  +10s', color: 0x00ff88, life: 2200 }
+          this.cameras.main.flash(220, 0, 220, 100, false)
+        }
+      }
+    }
+  }
+
   private triggerCrash(severity: 'soft' | 'hard' | 'oil') {
     const spinMs  = severity === 'hard' ? 1000 : severity === 'oil' ? 800 : 500
     const penalty = severity === 'hard' ? CRASH_PENALTY * 1.5 : CRASH_PENALTY
     this.spinDuration  = spinMs
+    this.spinDirection = Math.random() > 0.5 ? 1 : -1
+    this.crashDriftVX  = this.spinDirection * (35 + Math.random() * 55)
     this.invincible    = spinMs + 500
     this.crashRecoverT = 0
     this.gameSpeed     = Math.max(40, this.gameSpeed - penalty)
@@ -1032,8 +1152,18 @@ export default class RaceScene extends Phaser.Scene {
     if (this.laneChangeCooldown > 0) this.laneChangeCooldown -= delta
     if (this.invincible > 0)         this.invincible -= delta
     if (this.nitroTimer > 0)         this.nitroTimer -= delta
-    if (this.spinDuration > 0) { this.spinDuration -= delta; this.spinAngle += ds * Math.PI * 4 }
-    else this.spinAngle = 0
+    if (this.spinDuration > 0) {
+      this.spinDuration -= delta
+      this.spinAngle  += ds * Math.PI * 3.5 * this.spinDirection
+      this.crashDriftX += this.crashDriftVX * ds
+      this.crashDriftVX *= (1 - ds * 3.5)
+    } else {
+      this.spinAngle = 0
+      // Smoothly snap back to lane after spin
+      this.crashDriftX  *= (1 - ds * 7)
+      this.crashDriftVX  = 0
+      if (Math.abs(this.crashDriftX) < 0.5) this.crashDriftX = 0
+    }
 
     this.playerScreenX += (this.laneToX(this.playerLane) - this.playerScreenX) * Math.min(1, ds * 12)
 
@@ -1051,6 +1181,7 @@ export default class RaceScene extends Phaser.Scene {
     raceBridge.raceScore        = Math.round(this.score)
 
     this.tickSpawner(delta)
+    this.tickCheckpoints()
     this.scrollDashes(this.gameSpeed, ds)
     this.scrollScenery(this.gameSpeed, ds)
     this.scrollCity(this.gameSpeed, ds)

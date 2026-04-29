@@ -74,8 +74,10 @@ export default function QualiScreen() {
   const {
     qualiPhase, qualiQuestions, qualiAnswers,
     prepareQualifier, submitQualiAnswer, finalizeQualifier,
-    gridPosition, qualiScore, startCountdown,
+    gridPosition, qualiScore, startCountdown, resetRace,
   } = useGameStore()
+
+  const handleBack = () => { resetRace(); navigate('/home', { replace: true }) }
 
   const [timeMs, setTimeMs] = useState(QUESTION_TIME_MS)
   const [chosen, setChosen] = useState<string | null>(null)
@@ -208,13 +210,20 @@ export default function QualiScreen() {
           ))}
         </div>
 
-        <div style={{ padding:'16px 20px 0', marginTop:'auto' }}>
+        <div style={{ padding:'16px 20px 0', marginTop:'auto', display:'flex', flexDirection:'column', gap:9 }}>
           <button
             className="btn btn-primary btn-full btn-lg"
             style={{ fontWeight:900, letterSpacing:'0.04em', animation:'slideUp 0.3s 0.35s both' }}
             onClick={handleGoToRace}
           >
             🚦 Start Race
+          </button>
+          <button
+            className="btn btn-ghost btn-full"
+            style={{ fontSize:13, animation:'slideUp 0.3s 0.4s both' }}
+            onClick={handleBack}
+          >
+            ← Back to Home
           </button>
         </div>
       </div>
@@ -232,11 +241,18 @@ export default function QualiScreen() {
   return (
     <div style={S.screen}>
       {/* Header */}
-      <div style={{ padding:'16px 20px 0', display:'flex', alignItems:'center', gap:14 }}>
+      <div style={{ padding:'12px 20px 0', display:'flex', alignItems:'center', gap:14 }}>
         <CircleTimer pct={timerPct} seconds={timerSeconds} color={timerColor} />
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1 }}>
-            Qualification Round
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:1 }}>
+              Qualification Round
+            </div>
+            <button
+              onClick={handleBack}
+              style={{ background:'none', border:'1px solid var(--border)', borderRadius:6,
+                color:'var(--text-muted)', fontSize:12, padding:'3px 8px', cursor:'pointer' }}
+            >← Home</button>
           </div>
           <div style={{ fontSize:15, fontWeight:700, marginTop:4 }}>
             Question {questionIdx + 1} / {qualiQuestions.length}

@@ -162,4 +162,5 @@ export interface GameActions {
   tickRace: (deltaMs: number) => void
   endRace: () => void
   resetRace: () => void
+  quitRace: () => void  // abandon mid-race — no XP/coins/streak awarded
 }

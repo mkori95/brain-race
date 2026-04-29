@@ -156,11 +156,13 @@ const useGameStore = create<GameStore>((set, get) => ({
     raceBridge.raceScore = 0
     raceBridge.distanceTraveled = 0
     raceBridge.gameOver = false
+    raceBridge.raceFinished = false
     raceBridge.playerLane = 2
     raceBridge.onCoinCollected = null
     raceBridge.onNitroCollected = null
     raceBridge.onFuelCollected = null
     raceBridge.onCrash = null
+    raceBridge.onCheckpoint = null
 
     set({ raceStatus: 'racing', raceTimeLeft: RACE_DURATION_S, raceResult: null })
   },
@@ -170,7 +172,7 @@ const useGameStore = create<GameStore>((set, get) => ({
     if (raceStatus !== 'racing') return
 
     const newTimeLeft = get().raceTimeLeft - deltaMs / 1000
-    if (newTimeLeft <= 0 || raceBridge.gameOver) {
+    if (newTimeLeft <= 0 || raceBridge.gameOver || raceBridge.raceFinished) {
       get().endRace()
       return
     }
@@ -260,6 +262,22 @@ const useGameStore = create<GameStore>((set, get) => ({
     gridPosition: 3,
     startDelayMs: GRID_DELAY_MS[3],
   }),
+
+  // Abandon mid-race: resets everything without awarding XP/coins/streak
+  quitRace: () => {
+    raceBridge.gameOver = false
+    raceBridge.raceFinished = false
+    set({
+      raceStatus: 'idle',
+      raceResult: null,
+      raceTimeLeft: RACE_DURATION_S,
+      qualiPhase: 'idle',
+      qualiAnswers: [],
+      qualiScore: 0,
+      gridPosition: 3,
+      startDelayMs: GRID_DELAY_MS[3],
+    })
+  },
 }))
 
 const store = { getState: useGameStore.getState, setState: useGameStore.setState }

@@ -20,6 +20,10 @@ export interface RaceBridgeData {
   onNitroCollected: (() => void) | null
   onFuelCollected: (() => void) | null
   onCrash: (() => void) | null
+  onCheckpoint: (() => void) | null
+
+  // ── Phaser → React (race end states) ──
+  raceFinished: boolean   // player crossed finish line
 }
 
 export const raceBridge: RaceBridgeData = {
@@ -32,10 +36,12 @@ export const raceBridge: RaceBridgeData = {
   raceScore: 0,
   distanceTraveled: 0,
   gameOver: false,
+  raceFinished: false,
   playerLane: 2,
 
   onCoinCollected: null,
   onNitroCollected: null,
   onFuelCollected: null,
   onCrash: null,
+  onCheckpoint: null,
 }
