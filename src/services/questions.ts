@@ -33,25 +33,33 @@ export const fetchQuestions = async (opts: FetchQuestionsOptions): Promise<{ que
     return { questions, offline: false }
   } catch (err) {
     console.warn('Question API failed, using fallback:', err)
-    return { questions: getOfflineQuestions(persona, excludeIds), offline: true }
+    return { questions: getOfflineQuestions(persona, excludeIds, topicOverride), offline: true }
   }
 }
 
-const getOfflineQuestions = (persona: Persona, excludeIds: string[]): Question[] => {
+const getOfflineQuestions = (persona: Persona, excludeIds: string[], topicOverride?: string | null): Question[] => {
   const all = fallbackQuestions as Question[]
-  // When all questions have been seen, reset pool so offline mode never returns empty
   let available = all.filter((q) => !excludeIds.includes(q.id))
   if (available.length < 10) available = all
 
-  // Weight questions that match interests
+  // Topic override takes priority — filter strictly by topic keyword
+  if (topicOverride) {
+    const topic = topicOverride.toLowerCase()
+    const matched = available.filter((q) => q.topic.toLowerCase().includes(topic))
+    // If enough topic-matching questions exist, use them; otherwise pad with rest
+    if (matched.length >= 5) {
+      const rest = available.filter((q) => !matched.includes(q))
+      return shuffled([...matched, ...rest]).slice(0, 20)
+    }
+  }
+
+  // No override — weight by persona interests
   const interests = persona.interests.map((i) => i.toLowerCase())
   const matched = available.filter((q) =>
     interests.some((i) => q.topic.toLowerCase().includes(i))
   )
   const rest = available.filter((q) => !matched.includes(q))
-
-  const pool = [...matched, ...rest]
-  return shuffled(pool).slice(0, 20)
+  return shuffled([...matched, ...rest]).slice(0, 20)
 }
 
 const shuffled = <T>(arr: T[]): T[] => {

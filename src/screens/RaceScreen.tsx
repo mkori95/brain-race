@@ -7,52 +7,60 @@ import { raceBridge } from '@/game/raceBridge'
 import { stopEngine } from '@/game/audioEngine'
 
 const TICK_MS = 250
-const CHECKPOINT_BONUS_S = 10
+
+interface HudState {
+  lives: number
+  ammo: number
+  score: number
+  fuel: number
+}
 
 export default function RaceScreen() {
-  const navigate = useNavigate()
-  const gameRef  = useRef<Phaser.Game | null>(null)
-  const tickRef  = useRef<number | null>(null)
-  const [showQuit, setShowQuit] = useState(false)
+  const navigate  = useNavigate()
+  const gameRef   = useRef<Phaser.Game | null>(null)
+  const tickRef   = useRef<number | null>(null)
+  const [showQuit, setShowQuit]               = useState(false)
   const [checkpointFlash, setCheckpointFlash] = useState(false)
-  const [checkpointCount, setCheckpointCount] = useState(0)
+  const [hud, setHud] = useState<HudState>({ lives: 3, ammo: 10, score: 0, fuel: 1 })
 
-  const {
-    raceStatus, raceTimeLeft, gridPosition, startDelayMs,
-    startRace, tickRace, quitRace,
-  } = useGameStore()
+  const { raceStatus, gridPosition, startDelayMs, startRace, tickRace, quitRace } = useGameStore()
 
-  // ── Mount Phaser ────────────────────────────────────────────
+  // ── Mount Phaser ─────────────────────────────────────────────
   useEffect(() => {
     const game = new Phaser.Game(PHASER_CONFIG('phaser-race-container'))
     gameRef.current = game
     const t = window.setTimeout(() => startRace(), 300)
     return () => {
       clearTimeout(t)
-      stopEngine()          // always kill audio on unmount — don't rely on Phaser lifecycle
+      stopEngine()
       game.destroy(true)
       gameRef.current = null
     }
   }, [startRace])
 
-  // ── Race tick ───────────────────────────────────────────────
+  // ── Race tick — poll bridge & check for end ──────────────────
   useEffect(() => {
     if (raceStatus !== 'racing') return
-    tickRef.current = window.setInterval(() => tickRace(TICK_MS), TICK_MS)
+    tickRef.current = window.setInterval(() => {
+      setHud({
+        lives: raceBridge.lives,
+        ammo:  raceBridge.ammo,
+        score: Math.round(raceBridge.raceScore),
+        fuel:  raceBridge.fuelLevel,
+      })
+      tickRace(TICK_MS)
+    }, TICK_MS)
     return () => { if (tickRef.current) clearInterval(tickRef.current) }
   }, [raceStatus, tickRace])
 
-  // ── Navigate when ended ─────────────────────────────────────
+  // ── Navigate when ended ──────────────────────────────────────
   useEffect(() => {
     if (raceStatus === 'ended') navigate('/post-race', { replace: true })
   }, [raceStatus, navigate])
 
-  // ── Wire checkpoint callback ────────────────────────────────
+  // ── Checkpoint callback ──────────────────────────────────────
   useEffect(() => {
     raceBridge.onCheckpoint = () => {
-      // Add bonus time directly to store state
-      useGameStore.setState(s => ({ raceTimeLeft: s.raceTimeLeft + CHECKPOINT_BONUS_S }))
-      setCheckpointCount(n => n + 1)
       setCheckpointFlash(true)
       window.setTimeout(() => setCheckpointFlash(false), 800)
     }
@@ -66,11 +74,13 @@ export default function RaceScreen() {
     navigate('/home', { replace: true })
   }
 
-  const displayTime = Math.max(0, Math.ceil(raceTimeLeft))
-  const isLow = displayTime <= 15
   const posLabel = startDelayMs > 0
-    ? `P${gridPosition} · ${(startDelayMs / 1000).toFixed(1)}s`
+    ? `P${gridPosition} · ${(startDelayMs / 1000).toFixed(1)}s delay`
     : `P${gridPosition} · POLE`
+
+  const livesArr = Array.from({ length: 3 }, (_, i) => i < hud.lives)
+  const fuelPct  = Math.round(hud.fuel * 100)
+  const fuelColor = hud.fuel < 0.2 ? '#ef4444' : hud.fuel < 0.4 ? '#f59e0b' : '#22c55e'
 
   return (
     <div style={{
@@ -79,76 +89,77 @@ export default function RaceScreen() {
       maxWidth: 480, margin: '0 auto', overflow: 'hidden',
     }}>
 
-      {/* ── Top HUD strip ── */}
+      {/* ── Top HUD strip ────────────────────────────────────── */}
       <div style={{
         display: 'flex', alignItems: 'center',
-        padding: '6px 12px', gap: 6,
-        background: 'rgba(0,0,0,0.75)',
+        padding: '6px 10px', gap: 8,
+        background: 'rgba(0,0,0,0.80)',
         borderBottom: '1px solid rgba(255,255,255,0.07)',
         flexShrink: 0,
       }}>
-        {/* Quit button */}
+        {/* Quit */}
         <button
           onClick={() => setShowQuit(true)}
           style={{
             background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)',
             borderRadius: 6, color: '#aaa', fontSize: 14, fontWeight: 700,
-            padding: '3px 8px', cursor: 'pointer', lineHeight: 1,
+            padding: '3px 8px', cursor: 'pointer', lineHeight: 1, flexShrink: 0,
           }}
         >✕</button>
 
         {/* Grid pos */}
-        <span style={{ fontSize: 12, color: '#aaa', minWidth: 68 }}>{posLabel}</span>
+        <span style={{ fontSize: 11, color: '#aaa', flexShrink: 0 }}>{posLabel}</span>
 
-        {/* Timer — centre */}
+        {/* Lives */}
+        <span style={{ fontSize: 16, letterSpacing: 2, flexShrink: 0 }}>
+          {livesArr.map((alive, i) => (
+            <span key={i} style={{ color: alive ? '#ef4444' : '#333', marginRight: 1 }}>♥</span>
+          ))}
+        </span>
+
+        {/* Score — centre */}
         <span style={{
-          flex: 1, textAlign: 'center', fontSize: 22, fontWeight: 900,
-          color: isLow ? '#ef4444' : '#ffffff',
-          animation: isLow ? 'pulse 0.5s ease infinite' : undefined,
+          flex: 1, textAlign: 'center', fontSize: 18, fontWeight: 900, color: '#ffd700',
         }}>
-          {displayTime}s
+          {hud.score.toLocaleString()}
         </span>
 
-        {/* Score */}
-        <span style={{ fontSize: 12, color: '#ffd700', minWidth: 60, textAlign: 'right' }}>
-          🏆 {Math.round(raceBridge.raceScore)}
+        {/* Fuel % */}
+        <span style={{ fontSize: 12, color: fuelColor, flexShrink: 0, minWidth: 38, textAlign: 'right' }}>
+          ⛽{fuelPct}%
         </span>
 
-        {/* Checkpoint count badge */}
-        {checkpointCount > 0 && (
-          <span style={{
-            fontSize: 11, fontWeight: 700, color: '#00ff88',
-            background: 'rgba(0,255,136,0.12)', borderRadius: 4,
-            padding: '2px 5px',
-          }}>
-            ✓{checkpointCount}
-          </span>
-        )}
+        {/* Ammo */}
+        <span style={{
+          fontSize: 12, color: hud.ammo > 3 ? '#00ccff' : '#ef4444',
+          flexShrink: 0, minWidth: 30, textAlign: 'right',
+        }}>
+          🔫{hud.ammo}
+        </span>
       </div>
 
-      {/* ── Checkpoint flash overlay ── */}
+      {/* ── Checkpoint flash overlay ─────────────────────────── */}
       {checkpointFlash && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 20, pointerEvents: 'none',
-          background: 'rgba(0,255,136,0.08)',
-          border: '2px solid rgba(0,255,136,0.4)',
+          background: 'rgba(0,255,136,0.06)',
+          border: '3px solid rgba(0,255,136,0.45)',
           animation: 'fadeIn 0.1s ease both',
         }} />
       )}
 
-      {/* ── Phaser canvas ── */}
+      {/* ── Phaser canvas ──────────────────────────────────────── */}
       <div
         id="phaser-race-container"
-        style={{ flex: 1, width: '100%', background: '#080814', position: 'relative', overflow: 'hidden' }}
+        style={{ flex: 1, width: '100%', background: '#05050f', position: 'relative', overflow: 'hidden' }}
       />
 
-      {/* ── Quit confirmation dialog ── */}
+      {/* ── Quit confirmation dialog ──────────────────────────── */}
       {showQuit && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 50,
-          background: 'rgba(0,0,0,0.78)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          padding: 24,
+          background: 'rgba(0,0,0,0.80)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', padding: 24,
         }}>
           <div style={{
             background: 'var(--card)', border: '1px solid var(--border)',
@@ -162,18 +173,8 @@ export default function RaceScreen() {
               No XP, coins, or streak progress will be saved.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-              <button
-                className="btn btn-error btn-full"
-                onClick={handleQuit}
-              >
-                Quit Race
-              </button>
-              <button
-                className="btn btn-outline btn-full"
-                onClick={() => setShowQuit(false)}
-              >
-                Keep Racing
-              </button>
+              <button className="btn btn-error btn-full" onClick={handleQuit}>Quit Race</button>
+              <button className="btn btn-outline btn-full" onClick={() => setShowQuit(false)}>Keep Racing</button>
             </div>
           </div>
         </div>

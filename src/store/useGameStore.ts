@@ -156,14 +156,14 @@ const useGameStore = create<GameStore>((set, get) => ({
 
   startRace: () => {
     // Reset bridge runtime state
-    raceBridge.fuelLevel = 1.0 - (raceBridge.gridPosition - 1) * 0.05  // 5th = 80% fuel
+    raceBridge.fuelLevel = 1.0 - (raceBridge.gridPosition - 1) * 0.05  // P5 = 80% fuel
     raceBridge.raceScore = 0
     raceBridge.distanceTraveled = 0
     raceBridge.gameOver = false
     raceBridge.raceFinished = false
-    raceBridge.playerLane = 2
-    raceBridge.onCoinCollected = null
-    raceBridge.onNitroCollected = null
+    raceBridge.playerLane = 1
+    raceBridge.lives = 3
+    raceBridge.ammo  = 10
     raceBridge.onFuelCollected = null
     raceBridge.onCrash = null
     raceBridge.onCheckpoint = null
@@ -171,16 +171,12 @@ const useGameStore = create<GameStore>((set, get) => ({
     set({ raceStatus: 'racing', raceTimeLeft: RACE_DURATION_S, raceResult: null })
   },
 
-  tickRace: (deltaMs: number) => {
+  tickRace: (_deltaMs: number) => {
     const { raceStatus } = get()
     if (raceStatus !== 'racing') return
-
-    const newTimeLeft = get().raceTimeLeft - deltaMs / 1000
-    if (newTimeLeft <= 0 || raceBridge.gameOver || raceBridge.raceFinished) {
+    if (raceBridge.gameOver || raceBridge.raceFinished) {
       get().endRace()
-      return
     }
-    set({ raceTimeLeft: newTimeLeft })
   },
 
   endRace: () => {
