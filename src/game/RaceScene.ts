@@ -25,7 +25,7 @@ const COAST_DEC   = 50
 const BRAKE_DEC   = 200
 const TOP_SPEED   = 500
 const LATERAL_SPD = 220   // continuous drag px/s
-const BASE_SCROLL = 160
+const BASE_SCROLL = 0
 const SPEED_RAMP  = 15
 const RAMP_EVERY  = 30
 
@@ -86,7 +86,7 @@ interface Car {
 }
 
 interface Bullet   { x: number; y: number; alive: boolean }
-interface FuelPick { x: number; y: number; vy: number; alive: boolean }
+interface FuelPick { x: number; y: number; vy: number; laneIdx: number; alive: boolean }
 
 interface Particle {
   x: number; y: number; vx: number; vy: number
@@ -121,16 +121,16 @@ class RaceScene extends Phaser.Scene {
   private ended     = false
   private lockUntil = 0
 
-  // ── Road curve ───────────────────────────────────────────────
-  private roadCX   = CW / 2
-  private roadCXTo = CW / 2
-  private curveT   = 0
-  private RL       = 0
-  private RR       = 0
+  // ── Road curve (per-scanline perspective) ────────────────────
+  private curve      = 0
+  private curveTo    = 0
+  private curveAngle = 0
+  private RL         = CW / 2 - ROAD_W / 2
+  private RR         = CW / 2 + ROAD_W / 2
 
   // ── Scroll ───────────────────────────────────────────────────
   private roadScrollY = 0
-  private scrollSpd   = BASE_SCROLL
+  private scrollSpd   = 0
 
   // ── Track ────────────────────────────────────────────────────
   private cpPassed = new Set<number>()
@@ -174,7 +174,7 @@ class RaceScene extends Phaser.Scene {
     const lvl  = raceBridge.playerLevel
     this.difficulty = lvl <= 2 ? 'easy' : lvl === 3 ? 'medium' : 'hard'
 
-    this.roadCX = this.roadCXTo = CW / 2
+    this.curve = this.curveTo = this.curveAngle = 0
     this.RL = CW / 2 - ROAD_W / 2; this.RR = CW / 2 + ROAD_W / 2
     // Start player in right half, lane 3 (outermost forward lane)
     this.px = this.RR - LANE_W / 2
@@ -192,8 +192,7 @@ class RaceScene extends Phaser.Scene {
     this.started      = false
     this.ended        = false
     this.roadScrollY  = 0
-    this.scrollSpd    = BASE_SCROLL
-    this.curveT       = 0
+    this.scrollSpd    = 0
     this.tBanner      = 0
     this.cpPassed.clear()
     this.cars = []; this.bullets = []; this.fuels = []
@@ -272,12 +271,11 @@ class RaceScene extends Phaser.Scene {
     }
     if (this.ended) { this.drawAll(); return }
 
-    // ── Road curve ───────────────────────────────────────────
-    this.curveT  += dt
-    this.roadCXTo = CW / 2 + Math.sin(this.curveT * 0.28) * 55
-    this.roadCX  += (this.roadCXTo - this.roadCX) * Math.min(1, dt * 1.1)
-    this.RL       = this.roadCX - ROAD_W / 2
-    this.RR       = this.roadCX + ROAD_W / 2
+    // ── Road curve (scanline perspective) ───────────────────
+    this.curveAngle += dt * 0.22
+    this.curveTo     = Math.sin(this.curveAngle) * 0.12
+    this.curve      += (this.curveTo - this.curve) * Math.min(1, dt * 1.6)
+    this.px         += this.curve * this.scrollSpd * dt * 0.3
 
     // ── Input ────────────────────────────────────────────────
     const locked = this.time.now < this.lockUntil
@@ -304,7 +302,7 @@ class RaceScene extends Phaser.Scene {
     }
 
     // ── Physics ──────────────────────────────────────────────
-    this.scrollSpd   = Math.max(this.ps, BASE_SCROLL)
+    this.scrollSpd   = this.ps
     this.roadScrollY = (this.roadScrollY + this.scrollSpd * dt) % CH
     this.pd         += this.ps * dt
     this.fuel       -= (FUEL_BASE + this.ps * FUEL_SPD) * dt
@@ -325,7 +323,7 @@ class RaceScene extends Phaser.Scene {
       if (!this.cpPassed.has(cp) && this.pd >= cp) {
         this.cpPassed.add(cp)
         this.fuel = Math.min(1.0, this.fuel + CHECKPOINT_FUEL)
-        this.spawnFloat(this.roadCX, PLAYER_Y - 55, '+FUEL 25%', '#00ff88')
+        this.spawnFloat(CW / 2, PLAYER_Y - 55, '+FUEL 25%', '#00ff88')
         if (raceBridge.onCheckpoint) raceBridge.onCheckpoint()
       }
     }
@@ -346,7 +344,7 @@ class RaceScene extends Phaser.Scene {
     raceBridge.distanceTraveled = this.pd
     raceBridge.lives            = MAX_FAILURES - this.failureCount
     raceBridge.ammo             = this.ammo
-    raceBridge.playerLane       = this.px < this.roadCX ? 0 : 1
+    raceBridge.playerLane       = this.px < CW / 2 ? 0 : 1
 
     this.drawAll()
   }
@@ -392,14 +390,20 @@ class RaceScene extends Phaser.Scene {
     }
   }
 
+  // ─── Scanline road center ─────────────────────────────────────
+  private roadCenterAt(sy: number): number {
+    return CW / 2 + this.curve * (PLAYER_Y - sy)
+  }
+
   // ─── Lane helpers ─────────────────────────────────────────────
-  // All 4 lane centers (left→right): oncoming L0, oncoming L1, forward L2, forward L3
-  private allLaneCenters(): [number, number, number, number] {
+  // All 4 lane centers at spawn y (top of screen)
+  private allLaneCenters(sy = -30): [number, number, number, number] {
+    const rl = this.roadCenterAt(sy) - ROAD_W / 2
     return [
-      this.RL + LANE_W * 0.5,
-      this.RL + LANE_W * 1.5,
-      this.RL + LANE_W * 2.5,
-      this.RL + LANE_W * 3.5,
+      rl + LANE_W * 0.5,
+      rl + LANE_W * 1.5,
+      rl + LANE_W * 2.5,
+      rl + LANE_W * 3.5,
     ]
   }
 
@@ -449,7 +453,7 @@ class RaceScene extends Phaser.Scene {
     this.tFuel -= dt
     if (this.tFuel <= 0) {
       const li = Math.floor(Math.random() * 4)
-      this.fuels.push({ x: lc[li], y: -28, vy: this.scrollSpd * 0.40, alive: true })
+      this.fuels.push({ x: lc[li], y: -28, vy: this.scrollSpd * 0.40, laneIdx: li, alive: true })
       this.tFuel = si.fuel * (0.8 + Math.random() * 0.4)
     }
   }
@@ -457,12 +461,15 @@ class RaceScene extends Phaser.Scene {
   private moveEntities(dt: number) {
     for (const c of this.cars) {
       c.y += c.vy * dt
-      // Keep car x locked to its lane as road curves
-      c.x = this.RL + LANE_W * (c.laneIdx + 0.5)
+      // Track road curve: x = lane center at car's current screen y
+      c.x = this.roadCenterAt(c.y) - ROAD_W / 2 + LANE_W * (c.laneIdx + 0.5)
       if (c.type === 'cop') c.flashT += dt
     }
-    for (const b of this.bullets)   b.y -= 660 * dt
-    for (const f of this.fuels)     f.y += f.vy * dt
+    for (const b of this.bullets) b.y -= 660 * dt
+    for (const f of this.fuels) {
+      f.y += f.vy * dt
+      f.x = this.roadCenterAt(f.y) - ROAD_W / 2 + LANE_W * (f.laneIdx + 0.5)
+    }
     this.cars    = this.cars.filter(c => c.alive && c.y < CH + 50)
     this.bullets = this.bullets.filter(b => b.alive && b.y > -20)
     this.fuels   = this.fuels.filter(f => f.alive && f.y < CH + 40)
@@ -580,98 +587,92 @@ class RaceScene extends Phaser.Scene {
     // Sky
     g.fillStyle(th.sky); g.fillRect(0, 0, CW, CH)
 
-    // Scenery shifts opposite to road curve
-    const ox = (CW / 2 - this.roadCX) * 0.4
+    // Distant scenery (right side / sky area)
     if (this.theme === 'night_city') {
       const bcs = [0x111122, 0x0f0f1e, 0x141428]
       for (let i = 0; i < 4; i++) {
-        const bx = ((i * 80 + ox * 0.6 + 280) % 340) + MINIMAP_W - 30
+        const bx = ((i * 80 + 280) % 340) + MINIMAP_W - 30
         const bh = 50 + (i * 25) % 65
-        if (bx < this.RL - 4 || bx > this.RR + 4) {
+        if (bx > this.RR + 4) {
           g.fillStyle(bcs[i % 3]); g.fillRect(bx, CH * 0.2 - bh, 22 + (i % 3) * 6, bh)
         }
       }
     } else if (this.theme === 'desert') {
-      // Sun in sky
-      g.fillStyle(0xffdd44, 0.85); g.fillCircle(this.RL * 0.55 + ox * 0.15, CH * 0.14, 18)
-      g.fillStyle(0xffee88, 0.25); g.fillCircle(this.RL * 0.55 + ox * 0.15, CH * 0.14, 26)
-      // Distant dunes
+      g.fillStyle(0xffdd44, 0.85); g.fillCircle(this.RR + 30, CH * 0.14, 18)
+      g.fillStyle(0xffee88, 0.25); g.fillCircle(this.RR + 30, CH * 0.14, 26)
       g.fillStyle(0xc86a18)
-      g.fillTriangle(MINIMAP_W,        CH * 0.58, this.RL * 0.42 + ox * 0.08, CH * 0.31, this.RL * 0.75, CH * 0.58)
+      g.fillTriangle(this.RR, CH * 0.58, this.RR + 60, CH * 0.31, CW, CH * 0.58)
       g.fillStyle(0xd47820)
-      g.fillTriangle(this.RL * 0.55 + ox * 0.05, CH * 0.58, this.RL * 0.9 + ox * 0.1, CH * 0.38, this.RL, CH * 0.58)
+      g.fillTriangle(this.RR + 20, CH * 0.58, this.RR + 90, CH * 0.38, CW, CH * 0.58)
     } else {
-      // Mountain peaks
       g.fillStyle(0x1a1a30)
-      g.fillTriangle(MINIMAP_W, CH * 0.55, this.RL * 0.45, CH * 0.13, this.RL, CH * 0.55)
-      g.fillStyle(0x141428)
-      g.fillTriangle(this.RR, CH * 0.55, this.RR + (CW - this.RR) * 0.4, CH * 0.17, CW - 14, CH * 0.55)
-      // Snow cap
+      g.fillTriangle(this.RR, CH * 0.55, this.RR + (CW - this.RR) * 0.4, CH * 0.13, CW - 14, CH * 0.55)
       g.fillStyle(0xeeeeff, 0.5)
-      g.fillTriangle(this.RL * 0.45 - 12, CH * 0.21, this.RL * 0.45, CH * 0.13, this.RL * 0.45 + 12, CH * 0.21)
+      g.fillTriangle(this.RR + 30, CH * 0.21, this.RR + 50, CH * 0.13, this.RR + 70, CH * 0.21)
     }
 
-    // Shoulders — base fill
-    g.fillStyle(th.shoulder)
-    g.fillRect(MINIMAP_W, 0, this.RL - MINIMAP_W, CH)
-    g.fillRect(this.RR, 0, CW - this.RR, CH)
-
-    // Terrain texture: scrolling strips on shoulder areas
-    const sc   = this.roadScrollY
-    const strH = 28, strGap = 20
-    const so   = sc % (strH + strGap)
+    // Right shoulder — theme colored (start 60px early to cover curve gaps)
+    const sc      = this.roadScrollY
+    const strH    = 28, strGap = 20
+    const so      = sc % (strH + strGap)
+    const rShoulderX = this.RR - 60
+    g.fillStyle(th.shoulder); g.fillRect(rShoulderX, 0, CW - rShoulderX, CH)
     for (let y = -strH + so; y < CH + strH; y += strH + strGap) {
       const even = Math.floor((y - so) / (strH + strGap)) % 2 === 0
       g.fillStyle(even ? th.terrain : th.terrainAlt, 0.7)
-      g.fillRect(MINIMAP_W,    y, this.RL - MINIMAP_W, strH)
-      g.fillRect(this.RR, y, CW - this.RR,        strH)
+      g.fillRect(rShoulderX, y, CW - rShoulderX, strH)
     }
 
-    // Theme-specific shoulder details
+    // Right shoulder theme details
     if (this.theme === 'mountain') {
-      // Sparse tree trunks on both shoulders (static, evenly spaced)
-      const treeSpacing = 48
-      const treeOff = sc % treeSpacing
+      const treeSpacing = 48, treeOff = sc % treeSpacing
       for (let y = -treeSpacing + treeOff; y < CH + treeSpacing; y += treeSpacing) {
-        // Left side trees
-        const lx = MINIMAP_W + (this.RL - MINIMAP_W) * 0.6
-        g.fillStyle(0x2a5c2a, 0.8); g.fillTriangle(lx - 7, y + 4, lx, y - 14, lx + 7, y + 4)
-        g.fillStyle(0x1a3a1a, 0.7); g.fillTriangle(lx - 5, y + 2, lx, y - 10, lx + 5, y + 2)
-        g.fillStyle(0x3a2a18, 0.9); g.fillRect(lx - 2, y + 4, 4, 8)
-        // Right side trees
         const rx = this.RR + (CW - this.RR) * 0.4
         g.fillStyle(0x2a5c2a, 0.8); g.fillTriangle(rx - 7, y + 4, rx, y - 14, rx + 7, y + 4)
         g.fillStyle(0x1a3a1a, 0.7); g.fillTriangle(rx - 5, y + 2, rx, y - 10, rx + 5, y + 2)
         g.fillStyle(0x3a2a18, 0.9); g.fillRect(rx - 2, y + 4, 4, 8)
       }
     } else if (this.theme === 'desert') {
-      // Occasional cacti silhouettes
-      const cactiSpacing = 80
-      const cactiOff = (sc * 0.8) % cactiSpacing
+      const cactiSpacing = 80, cactiOff = (sc * 0.8) % cactiSpacing
       for (let y = -cactiSpacing + cactiOff; y < CH + cactiSpacing; y += cactiSpacing) {
-        const lx = MINIMAP_W + (this.RL - MINIMAP_W) * 0.55
-        g.fillStyle(0x5a7a30, 0.75)
-        g.fillRect(lx - 2, y - 14, 4, 20)
-        g.fillRect(lx - 8, y - 8,  6, 3)
-        g.fillRect(lx + 2, y - 6,  6, 3)
         const rx = this.RR + (CW - this.RR) * 0.45
+        g.fillStyle(0x5a7a30, 0.75)
         g.fillRect(rx - 2, y - 14, 4, 20)
         g.fillRect(rx - 8, y - 8,  6, 3)
         g.fillRect(rx + 2, y - 6,  6, 3)
       }
     } else {
-      // Night city: lamp posts on right shoulder
-      const lampSpacing = 96
-      const lampOff = sc % lampSpacing
+      // Night city: lamp post on right shoulder only
+      const lampSpacing = 96, lampOff = sc % lampSpacing
       for (let y = -lampSpacing + lampOff; y < CH + lampSpacing; y += lampSpacing) {
-        const lx = this.RL - 4
-        g.fillStyle(0x334455, 0.9); g.fillRect(lx - 2, y - 18, 2, 22)
-        g.fillStyle(0xffffaa, 0.6); g.fillCircle(lx - 1, y - 18, 3)
-        g.fillStyle(0xffffaa, 0.08); g.fillCircle(lx - 1, y - 18, 9)
         const rx = this.RR + 4
         g.fillStyle(0x334455, 0.9); g.fillRect(rx, y - 18, 2, 22)
         g.fillStyle(0xffffaa, 0.6); g.fillCircle(rx + 1, y - 18, 3)
         g.fillStyle(0xffffaa, 0.08); g.fillCircle(rx + 1, y - 18, 9)
+      }
+    }
+
+    // Left shoulder — always green grass with crowd spectators
+    // Extra 60px covers the max road curve shift so no sky bleeds through
+    const lShoulderW = this.RL - MINIMAP_W + 60
+    g.fillStyle(0x2d7020); g.fillRect(MINIMAP_W, 0, lShoulderW, CH)
+    for (let y = -strH + so; y < CH + strH; y += strH + strGap) {
+      const even = Math.floor((y - so) / (strH + strGap)) % 2 === 0
+      g.fillStyle(even ? 0x3a8c3a : 0x2d7020, 0.85)
+      g.fillRect(MINIMAP_W, y, lShoulderW, strH)
+    }
+    // Scrolling crowd figures
+    const shirtCols = [0xee3333, 0x3333ee, 0xeeaa00, 0x33aaee, 0xee33aa]
+    const figSpacing = 22, figOff = (sc * 0.75) % figSpacing
+    for (let y = -figSpacing + figOff; y < CH + figSpacing; y += figSpacing) {
+      const row = Math.floor((y - figOff + figSpacing * 2) / figSpacing)
+      for (let fi = 0; fi < 2; fi++) {
+        const fx = MINIMAP_W + 8 + fi * 11 + (row % 2) * 5
+        const sc2 = shirtCols[(row * 2 + fi) % shirtCols.length]
+        g.fillStyle(0xf0c880); g.fillCircle(fx, y - 5, 2)
+        g.fillStyle(sc2, 0.9); g.fillRect(fx - 2, y - 3, 4, 5)
+        g.fillStyle(0x1a1a1a); g.fillRect(fx - 2, y + 2, 2, 4); g.fillRect(fx, y + 2, 2, 4)
+        g.fillStyle(sc2, 0.9); g.fillRect(fx - 4, y - 3, 2, 3); g.fillRect(fx + 2, y - 3, 2, 3)
       }
     }
   }
@@ -681,54 +682,44 @@ class RaceScene extends Phaser.Scene {
     const sc = this.roadScrollY
     g.clear()
 
-    // ── Road surface (gray) ─────────────────────────────────
-    g.fillStyle(ROAD_ASPHALT); g.fillRect(this.RL, 0, ROAD_W, CH)
+    // Per-scanline Road Fighter perspective effect
+    // Each 4px strip: road shifts based on curve × distance from player
+    const STRIP  = 4
+    const B_CYC  = 108   // band: 36 dark + 72 light
+    const CB_CYC = 32    // curb: 16 red + 16 white
+    const D_CYC  = 36    // dash: 20 on + 16 off
 
-    // Scrolling bands
-    const bandH = 36, bandGap = 72
-    const bo    = sc % (bandH + bandGap)
-    g.fillStyle(ROAD_BAND)
-    for (let y = -bandH + bo; y < CH + bandH; y += bandH + bandGap) {
-      g.fillRect(this.RL, y, ROAD_W, bandH)
+    for (let sy = 0; sy < CH; sy += STRIP) {
+      const cx  = this.roadCenterAt(sy)
+      const rl  = cx - ROAD_W / 2
+
+      // Road surface with scrolling bands
+      const bpos = ((sy + sc) % B_CYC + B_CYC) % B_CYC
+      g.fillStyle(bpos < 36 ? ROAD_BAND : ROAD_ASPHALT)
+      g.fillRect(rl, sy, ROAD_W, STRIP)
+
+      // Curbs (red/white alternating)
+      const cpos = ((sy + sc) % CB_CYC + CB_CYC) % CB_CYC
+      g.fillStyle(cpos < 16 ? CURB_RED : CURB_WHITE)
+      g.fillRect(rl - 8, sy, 8, STRIP)
+      g.fillRect(rl + ROAD_W, sy, 8, STRIP)
+
+      // Center double-yellow divider
+      g.fillStyle(CENTER_YELLOW)
+      g.fillRect(rl + LANE_W * 2 - 3, sy, 2, STRIP)
+      g.fillRect(rl + LANE_W * 2 + 1, sy, 2, STRIP)
+
+      // Dashed lane markings
+      const dpos = ((sy + sc) % D_CYC + D_CYC) % D_CYC
+      if (dpos < 20) {
+        g.fillStyle(LANE_WHITE, 0.85)
+        g.fillRect(rl + LANE_W     - 1, sy, 2, STRIP)
+        g.fillRect(rl + LANE_W * 3 - 1, sy, 2, STRIP)
+      }
     }
 
-    // ── Road markers (START / CHECKPOINT / FINISH) ──────────
+    // Road markers painted on road surface
     this.drawRoadMarkers(g)
-
-    // ── Lane markings (white) ───────────────────────────────
-    const dashH = 20, dashGap = 16
-    const do_   = sc % (dashH + dashGap)
-
-    // Dashed line between L0 and L1 (oncoming lanes)
-    const lx01 = this.RL + LANE_W
-    g.fillStyle(LANE_WHITE, 0.85)
-    for (let y = -dashH + do_; y < CH + dashH; y += dashH + dashGap) {
-      g.fillRect(lx01 - 1, y, 2, dashH)
-    }
-
-    // CENTER DIVIDER — solid double yellow line
-    const cx = this.RL + LANE_W * 2
-    g.fillStyle(CENTER_YELLOW)
-    g.fillRect(cx - 3, 0, 2, CH)
-    g.fillRect(cx + 1, 0, 2, CH)
-
-    // Dashed line between L2 and L3 (forward lanes)
-    const lx23 = this.RL + LANE_W * 3
-    g.fillStyle(LANE_WHITE, 0.85)
-    for (let y = -dashH + do_; y < CH + dashH; y += dashH + dashGap) {
-      g.fillRect(lx23 - 1, y, 2, dashH)
-    }
-
-    // ── Curbs ───────────────────────────────────────────────
-    const curbW = 8, curbH = 16, co = sc % (curbH * 2)
-    for (let y = -curbH + co; y < CH + curbH; y += curbH * 2) {
-      g.fillStyle(CURB_RED)
-      g.fillRect(this.RL - curbW, y, curbW, curbH)
-      g.fillRect(this.RR,          y, curbW, curbH)
-      g.fillStyle(CURB_WHITE)
-      g.fillRect(this.RL - curbW, y + curbH, curbW, curbH)
-      g.fillRect(this.RR,          y + curbH, curbW, curbH)
-    }
   }
 
   // ─── Road markers painted on road ─────────────────────────────
@@ -741,30 +732,32 @@ class RaceScene extends Phaser.Scene {
       const label    = MARKER_LABELS[i]
       const isFinish = label === 'FINISH'
       const isStart  = label === 'START'
+      const cx       = this.roadCenterAt(sy)
+      const rl       = cx - ROAD_W / 2
 
       // Wide stripe across road
       const stripeColor = isFinish ? 0x111111 : isStart ? 0x222277 : 0x227722
       g.fillStyle(stripeColor, 0.85)
-      g.fillRect(this.RL, sy - 18, ROAD_W, 36)
+      g.fillRect(rl, sy - 18, ROAD_W, 36)
 
       // Thin white border lines on stripe
       g.fillStyle(0xffffff, 0.7)
-      g.fillRect(this.RL, sy - 18, ROAD_W, 2)
-      g.fillRect(this.RL, sy + 16, ROAD_W, 2)
+      g.fillRect(rl, sy - 18, ROAD_W, 2)
+      g.fillRect(rl, sy + 16, ROAD_W, 2)
 
       // Oval background
       const ovalW = label === 'CHECKPOINT' ? 140 : 112
       const ovalH = 30
       const ovalColor = isFinish ? 0xffd700 : isStart ? 0x4444ff : 0x00aa44
       g.fillStyle(ovalColor)
-      g.fillEllipse(this.roadCX, sy, ovalW, ovalH)
+      g.fillEllipse(cx, sy, ovalW, ovalH)
 
       // Oval border
       g.lineStyle(2, 0xffffff, 0.9)
-      g.strokeEllipse(this.roadCX, sy, ovalW, ovalH)
+      g.strokeEllipse(cx, sy, ovalW, ovalH)
 
       // Position text
-      this.markerTexts[i].setPosition(this.roadCX, sy).setVisible(true)
+      this.markerTexts[i].setPosition(cx, sy).setVisible(true)
     }
   }
 
@@ -800,13 +793,18 @@ class RaceScene extends Phaser.Scene {
     g.fillStyle(0x2a2a2a); g.fillRect(x + sx - 3, y - hh + 1, 6, 7)
     g.fillStyle(0x111111); g.fillRect(x + sx - 1, y - hh - 4, 2, 7)
     const th = THEMES[this.theme] ?? THEMES.night_city
-    g.fillStyle(0xffee88, th.headlights ? 0.9 : 0.3)
+    // Taillights at rear (always visible)
+    g.fillStyle(0xff2200, 0.9)
     g.fillRect(x + sx - 6, y + hh - 5, 4, 3)
     g.fillRect(x + sx + 2, y + hh - 5, 4, 3)
+    // Headlights at front, night themes only
     if (th.headlights) {
-      g.fillStyle(0xffee88, 0.10)
-      g.fillTriangle(x + sx - 4, y + hh - 4, x + sx - 18, y + hh + 24, x + sx, y + hh + 24)
-      g.fillTriangle(x + sx + 4, y + hh - 4, x + sx + 18, y + hh + 24, x + sx, y + hh + 24)
+      g.fillStyle(0xffee88, 0.9)
+      g.fillRect(x + sx - 5, y - hh + 1, 3, 2)
+      g.fillRect(x + sx + 2, y - hh + 1, 3, 2)
+      g.fillStyle(0xffee88, 0.08)
+      g.fillTriangle(x + sx - 3, y - hh, x + sx - 16, y - hh - 30, x + sx + 2, y - hh - 30)
+      g.fillTriangle(x + sx + 3, y - hh, x + sx + 16, y - hh - 30, x + sx - 2, y - hh - 30)
     }
     if (this.ps > 70) {
       const al = Math.min(0.4, this.ps / 280)

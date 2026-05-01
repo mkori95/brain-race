@@ -126,7 +126,7 @@ const getOfflineQuestions = (persona: Persona, excludeIds: string[], topicOverri
     const matched = available.filter((q) => q.topic.toLowerCase().includes(topic))
     if (matched.length >= 5) {
       const rest = available.filter((q) => !matched.includes(q))
-      return shuffled([...matched, ...rest]).slice(0, 20)
+      return [...shuffled(matched), ...shuffled(rest)].slice(0, 20)
     }
   }
 
@@ -134,7 +134,7 @@ const getOfflineQuestions = (persona: Persona, excludeIds: string[], topicOverri
   const interests = persona.interests.map((i) => i.toLowerCase())
   const matched   = available.filter((q) => interests.some((i) => q.topic.toLowerCase().includes(i)))
   const rest      = available.filter((q) => !matched.includes(q))
-  return shuffled([...matched, ...rest]).slice(0, 20)
+  return [...shuffled(matched), ...shuffled(rest)].slice(0, 20)
 }
 
 const shuffled = <T>(arr: T[]): T[] => {
