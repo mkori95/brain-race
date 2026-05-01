@@ -70,15 +70,16 @@ const SPAWNS = {
 const TRAFFIC_COLORS = [0x558855, 0x885555, 0x555588, 0x887755, 0x558877]
 
 // ─── Theme sky/shoulder colors ────────────────────────────────────
-const THEMES: Record<string, { sky: number; shoulder: number }> = {
-  night_city: { sky: 0x05050f, shoulder: 0x080812 },
-  desert:     { sky: 0x2a1a08, shoulder: 0x180e04 },
-  mountain:   { sky: 0x0a0a18, shoulder: 0x060610 },
+const THEMES: Record<string, { sky: number; shoulder: number; terrain: number; terrainAlt: number; headlights: boolean }> = {
+  night_city: { sky: 0x05050f, shoulder: 0x0a0a18, terrain: 0x0d0d22, terrainAlt: 0x080814, headlights: true  },
+  desert:     { sky: 0xd4882a, shoulder: 0xc47010, terrain: 0xb85c10, terrainAlt: 0xd4882a, headlights: false },
+  mountain:   { sky: 0x0a0a18, shoulder: 0x0d1a0d, terrain: 0x1a4418, terrainAlt: 0x0d2a0d, headlights: true  },
 }
 
 // ─── Interfaces ───────────────────────────────────────────────────
 interface Car {
   x: number; y: number; vy: number
+  laneIdx: number                         // 0-3; used to track road curve
   type: 'traffic' | 'incoming' | 'cop'
   color: number; dark: number
   alive: boolean; flashT: number
@@ -219,11 +220,11 @@ class RaceScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(20).setVisible(false)
 
     // Road marker texts (START, CHECKPOINT×3, FINISH)
-    const mColors = ['#000000', '#000000', '#000000', '#000000', '#ffffff']
+    const mColors = ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#000000']
     for (let i = 0; i < MARKER_LABELS.length; i++) {
       this.markerTexts.push(
         this.add.text(0, 0, MARKER_LABELS[i], {
-          fontSize: MARKER_LABELS[i] === 'CHECKPOINT' ? '9px' : '13px',
+          fontSize: MARKER_LABELS[i] === 'CHECKPOINT' ? '13px' : '17px',
           fontFamily: 'monospace', fontStyle: 'bold', color: mColors[i],
         }).setOrigin(0.5, 0.5).setDepth(3).setVisible(false)
       )
@@ -410,10 +411,10 @@ class RaceScene extends Phaser.Scene {
     // Forward traffic → right 2 lanes (L2, L3)
     this.tTraffic -= dt
     if (this.tTraffic <= 0) {
-      const laneIdx = Math.random() < 0.5 ? 2 : 3
-      const col     = TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)]
+      const li  = Math.random() < 0.5 ? 2 : 3
+      const col = TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)]
       this.cars.push({
-        x: lc[laneIdx], y: -30,
+        x: lc[li], y: -30, laneIdx: li,
         vy: this.scrollSpd * 0.40,
         type: 'traffic', color: col, dark: this.darken(col), alive: true, flashT: 0,
       })
@@ -423,9 +424,9 @@ class RaceScene extends Phaser.Scene {
     // Oncoming → left 2 lanes (L0, L1) — come from top, move DOWN fast
     this.tIncoming -= dt
     if (this.tIncoming <= 0) {
-      const laneIdx = Math.random() < 0.5 ? 0 : 1
+      const li = Math.random() < 0.5 ? 0 : 1
       this.cars.push({
-        x: lc[laneIdx], y: -30,
+        x: lc[li], y: -30, laneIdx: li,
         vy: this.scrollSpd * 1.8 + 100,
         type: 'incoming', color: 0xffbb00, dark: 0xaa7700, alive: true, flashT: 0,
       })
@@ -435,9 +436,9 @@ class RaceScene extends Phaser.Scene {
     // Cop → right 2 lanes (L2, L3)
     this.tCop -= dt
     if (this.tCop <= 0) {
-      const laneIdx = Math.random() < 0.5 ? 2 : 3
+      const li = Math.random() < 0.5 ? 2 : 3
       this.cars.push({
-        x: lc[laneIdx], y: -30,
+        x: lc[li], y: -30, laneIdx: li,
         vy: this.scrollSpd * 0.50,
         type: 'cop', color: 0x111166, dark: 0x080840, alive: true, flashT: 0,
       })
@@ -447,14 +448,19 @@ class RaceScene extends Phaser.Scene {
     // Fuel pickup → any lane
     this.tFuel -= dt
     if (this.tFuel <= 0) {
-      const laneIdx = Math.floor(Math.random() * 4)
-      this.fuels.push({ x: lc[laneIdx], y: -28, vy: this.scrollSpd * 0.40, alive: true })
+      const li = Math.floor(Math.random() * 4)
+      this.fuels.push({ x: lc[li], y: -28, vy: this.scrollSpd * 0.40, alive: true })
       this.tFuel = si.fuel * (0.8 + Math.random() * 0.4)
     }
   }
 
   private moveEntities(dt: number) {
-    for (const c of this.cars)    { c.y += c.vy * dt; if (c.type === 'cop') c.flashT += dt }
+    for (const c of this.cars) {
+      c.y += c.vy * dt
+      // Keep car x locked to its lane as road curves
+      c.x = this.RL + LANE_W * (c.laneIdx + 0.5)
+      if (c.type === 'cop') c.flashT += dt
+    }
     for (const b of this.bullets)   b.y -= 660 * dt
     for (const f of this.fuels)     f.y += f.vy * dt
     this.cars    = this.cars.filter(c => c.alive && c.y < CH + 50)
@@ -586,21 +592,88 @@ class RaceScene extends Phaser.Scene {
         }
       }
     } else if (this.theme === 'desert') {
-      g.fillStyle(0x6b4a20)
-      g.fillTriangle(MINIMAP_W, CH * 0.55, this.RL * 0.5 + ox * 0.1, CH * 0.27, this.RL, CH * 0.55)
+      // Sun in sky
+      g.fillStyle(0xffdd44, 0.85); g.fillCircle(this.RL * 0.55 + ox * 0.15, CH * 0.14, 18)
+      g.fillStyle(0xffee88, 0.25); g.fillCircle(this.RL * 0.55 + ox * 0.15, CH * 0.14, 26)
+      // Distant dunes
+      g.fillStyle(0xc86a18)
+      g.fillTriangle(MINIMAP_W,        CH * 0.58, this.RL * 0.42 + ox * 0.08, CH * 0.31, this.RL * 0.75, CH * 0.58)
+      g.fillStyle(0xd47820)
+      g.fillTriangle(this.RL * 0.55 + ox * 0.05, CH * 0.58, this.RL * 0.9 + ox * 0.1, CH * 0.38, this.RL, CH * 0.58)
     } else {
+      // Mountain peaks
       g.fillStyle(0x1a1a30)
       g.fillTriangle(MINIMAP_W, CH * 0.55, this.RL * 0.45, CH * 0.13, this.RL, CH * 0.55)
       g.fillStyle(0x141428)
       g.fillTriangle(this.RR, CH * 0.55, this.RR + (CW - this.RR) * 0.4, CH * 0.17, CW - 14, CH * 0.55)
+      // Snow cap
       g.fillStyle(0xeeeeff, 0.5)
       g.fillTriangle(this.RL * 0.45 - 12, CH * 0.21, this.RL * 0.45, CH * 0.13, this.RL * 0.45 + 12, CH * 0.21)
     }
 
-    // Shoulders
+    // Shoulders — base fill
     g.fillStyle(th.shoulder)
     g.fillRect(MINIMAP_W, 0, this.RL - MINIMAP_W, CH)
     g.fillRect(this.RR, 0, CW - this.RR, CH)
+
+    // Terrain texture: scrolling strips on shoulder areas
+    const sc   = this.roadScrollY
+    const strH = 28, strGap = 20
+    const so   = sc % (strH + strGap)
+    for (let y = -strH + so; y < CH + strH; y += strH + strGap) {
+      const even = Math.floor((y - so) / (strH + strGap)) % 2 === 0
+      g.fillStyle(even ? th.terrain : th.terrainAlt, 0.7)
+      g.fillRect(MINIMAP_W,    y, this.RL - MINIMAP_W, strH)
+      g.fillRect(this.RR, y, CW - this.RR,        strH)
+    }
+
+    // Theme-specific shoulder details
+    if (this.theme === 'mountain') {
+      // Sparse tree trunks on both shoulders (static, evenly spaced)
+      const treeSpacing = 48
+      const treeOff = sc % treeSpacing
+      for (let y = -treeSpacing + treeOff; y < CH + treeSpacing; y += treeSpacing) {
+        // Left side trees
+        const lx = MINIMAP_W + (this.RL - MINIMAP_W) * 0.6
+        g.fillStyle(0x2a5c2a, 0.8); g.fillTriangle(lx - 7, y + 4, lx, y - 14, lx + 7, y + 4)
+        g.fillStyle(0x1a3a1a, 0.7); g.fillTriangle(lx - 5, y + 2, lx, y - 10, lx + 5, y + 2)
+        g.fillStyle(0x3a2a18, 0.9); g.fillRect(lx - 2, y + 4, 4, 8)
+        // Right side trees
+        const rx = this.RR + (CW - this.RR) * 0.4
+        g.fillStyle(0x2a5c2a, 0.8); g.fillTriangle(rx - 7, y + 4, rx, y - 14, rx + 7, y + 4)
+        g.fillStyle(0x1a3a1a, 0.7); g.fillTriangle(rx - 5, y + 2, rx, y - 10, rx + 5, y + 2)
+        g.fillStyle(0x3a2a18, 0.9); g.fillRect(rx - 2, y + 4, 4, 8)
+      }
+    } else if (this.theme === 'desert') {
+      // Occasional cacti silhouettes
+      const cactiSpacing = 80
+      const cactiOff = (sc * 0.8) % cactiSpacing
+      for (let y = -cactiSpacing + cactiOff; y < CH + cactiSpacing; y += cactiSpacing) {
+        const lx = MINIMAP_W + (this.RL - MINIMAP_W) * 0.55
+        g.fillStyle(0x5a7a30, 0.75)
+        g.fillRect(lx - 2, y - 14, 4, 20)
+        g.fillRect(lx - 8, y - 8,  6, 3)
+        g.fillRect(lx + 2, y - 6,  6, 3)
+        const rx = this.RR + (CW - this.RR) * 0.45
+        g.fillRect(rx - 2, y - 14, 4, 20)
+        g.fillRect(rx - 8, y - 8,  6, 3)
+        g.fillRect(rx + 2, y - 6,  6, 3)
+      }
+    } else {
+      // Night city: lamp posts on right shoulder
+      const lampSpacing = 96
+      const lampOff = sc % lampSpacing
+      for (let y = -lampSpacing + lampOff; y < CH + lampSpacing; y += lampSpacing) {
+        const lx = this.RL - 4
+        g.fillStyle(0x334455, 0.9); g.fillRect(lx - 2, y - 18, 2, 22)
+        g.fillStyle(0xffffaa, 0.6); g.fillCircle(lx - 1, y - 18, 3)
+        g.fillStyle(0xffffaa, 0.08); g.fillCircle(lx - 1, y - 18, 9)
+        const rx = this.RR + 4
+        g.fillStyle(0x334455, 0.9); g.fillRect(rx, y - 18, 2, 22)
+        g.fillStyle(0xffffaa, 0.6); g.fillCircle(rx + 1, y - 18, 3)
+        g.fillStyle(0xffffaa, 0.08); g.fillCircle(rx + 1, y - 18, 9)
+      }
+    }
   }
 
   private drawRoad() {
@@ -672,16 +745,16 @@ class RaceScene extends Phaser.Scene {
       // Wide stripe across road
       const stripeColor = isFinish ? 0x111111 : isStart ? 0x222277 : 0x227722
       g.fillStyle(stripeColor, 0.85)
-      g.fillRect(this.RL, sy - 14, ROAD_W, 28)
+      g.fillRect(this.RL, sy - 18, ROAD_W, 36)
 
       // Thin white border lines on stripe
       g.fillStyle(0xffffff, 0.7)
-      g.fillRect(this.RL, sy - 14, ROAD_W, 2)
-      g.fillRect(this.RL, sy + 12, ROAD_W, 2)
+      g.fillRect(this.RL, sy - 18, ROAD_W, 2)
+      g.fillRect(this.RL, sy + 16, ROAD_W, 2)
 
       // Oval background
-      const ovalW = label === 'CHECKPOINT' ? 110 : 88
-      const ovalH = 22
+      const ovalW = label === 'CHECKPOINT' ? 140 : 112
+      const ovalH = 30
       const ovalColor = isFinish ? 0xffd700 : isStart ? 0x4444ff : 0x00aa44
       g.fillStyle(ovalColor)
       g.fillEllipse(this.roadCX, sy, ovalW, ovalH)
@@ -726,12 +799,15 @@ class RaceScene extends Phaser.Scene {
     g.fillStyle(0x001a33, 0.85); g.fillRect(x + sx - 4, y - hh + 5, 8, 8)
     g.fillStyle(0x2a2a2a); g.fillRect(x + sx - 3, y - hh + 1, 6, 7)
     g.fillStyle(0x111111); g.fillRect(x + sx - 1, y - hh - 4, 2, 7)
-    g.fillStyle(0xffee88, 0.9)
+    const th = THEMES[this.theme] ?? THEMES.night_city
+    g.fillStyle(0xffee88, th.headlights ? 0.9 : 0.3)
     g.fillRect(x + sx - 6, y + hh - 5, 4, 3)
     g.fillRect(x + sx + 2, y + hh - 5, 4, 3)
-    g.fillStyle(0xffee88, 0.10)
-    g.fillTriangle(x + sx - 4, y + hh - 4, x + sx - 18, y + hh + 24, x + sx, y + hh + 24)
-    g.fillTriangle(x + sx + 4, y + hh - 4, x + sx + 18, y + hh + 24, x + sx, y + hh + 24)
+    if (th.headlights) {
+      g.fillStyle(0xffee88, 0.10)
+      g.fillTriangle(x + sx - 4, y + hh - 4, x + sx - 18, y + hh + 24, x + sx, y + hh + 24)
+      g.fillTriangle(x + sx + 4, y + hh - 4, x + sx + 18, y + hh + 24, x + sx, y + hh + 24)
+    }
     if (this.ps > 70) {
       const al = Math.min(0.4, this.ps / 280)
       const ey = y - hh - 3
