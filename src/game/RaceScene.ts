@@ -23,15 +23,21 @@ const FINISH_DIST   = 20000
 const CHECKPOINTS   = [5000, 10000, 15000] as const
 const CHECKPOINT_FUEL = 0.25
 
-// ─── Speed ────────────────────────────────────────────────────────
-const ACCEL       = 240
-const COAST_DEC   = 50
-const BRAKE_DEC   = 200
-const TOP_SPEED   = 500
-const LATERAL_SPD = 220   // continuous drag px/s
-const BASE_SCROLL = 0
-const SPEED_RAMP  = 15
-const RAMP_EVERY  = 30
+// ─── Speed / gear ─────────────────────────────────────────────────
+const COAST_DEC     = 80
+const BRAKE_DEC     = 280
+const LOW_GEAR_TOP  = 420   // ~200 km/h
+const HIGH_GEAR_TOP = 850   // ~408 km/h
+const HIGH_GEAR_ACCEL = 480
+const LOW_GEAR_ACCEL  = 320
+const LATERAL_SPD   = 220
+
+// ─── Road curve (distance-based sections) ─────────────────────────
+const CURVE_MAX          = 0.10
+const STRAIGHT_DIST_MIN  = 1200
+const STRAIGHT_DIST_MAX  = 2800
+const CURVE_DIST_MIN     = 700
+const CURVE_DIST_MAX     = 1600
 
 // ─── Spin / failure system ────────────────────────────────────────
 const MAX_SPINS    = 3    // spins per life before respawn
@@ -71,7 +77,13 @@ const SPAWNS = {
   hard:   { traffic: 1.3, incoming: 2.6, cop:  5.5, fuel: 11.0 },
 }
 
-const TRAFFIC_COLORS = [0x558855, 0x885555, 0x555588, 0x887755, 0x558877]
+// ─── Traffic type colors ──────────────────────────────────────────
+const YELLOW_COLOR    = 0xddcc22
+const RED_COLOR       = 0xcc2222
+const BLUE_COLOR      = 0x2255cc
+const TRUCK_COLOR     = 0x556633
+const FUEL_CAR_COLORS = [0xff4400, 0x00bbff, 0xff00bb, 0x44ff00, 0xff8800]
+const INCOMING_COLORS = [0xffcc22, 0xddaa00]
 
 // ─── Theme sky/shoulder colors ────────────────────────────────────
 const THEMES: Record<string, { sky: number; shoulder: number; terrain: number; terrainAlt: number; headlights: boolean }> = {
@@ -83,10 +95,11 @@ const THEMES: Record<string, { sky: number; shoulder: number; terrain: number; t
 // ─── Interfaces ───────────────────────────────────────────────────
 interface Car {
   x: number; y: number; vy: number
-  laneIdx: number                         // 0-3; used to track road curve
-  type: 'traffic' | 'incoming' | 'cop'
+  laneIdx: number; targetLane: number
+  type: 'yellow' | 'red' | 'blue' | 'truck' | 'fuel_car' | 'incoming' | 'cop'
   color: number; dark: number
   alive: boolean; flashT: number
+  blockCD: number   // lane-change cooldown for red/blue
 }
 
 interface Bullet   { x: number; y: number; alive: boolean }
@@ -107,7 +120,7 @@ class RaceScene extends Phaser.Scene {
   private px     = 0
   private ps     = 0
   private pd     = 0
-  private topSpd = TOP_SPEED
+  private topSpd = HIGH_GEAR_TOP
   private ammo   = START_AMMO
   private fuel   = 1.0
   private score  = 0
@@ -125,12 +138,13 @@ class RaceScene extends Phaser.Scene {
   private ended     = false
   private lockUntil = 0
 
-  // ── Road curve (per-scanline perspective) ────────────────────
-  private curve      = 0
-  private curveTo    = 0
-  private curveAngle = 0
-  private RL         = GAME_W / 2 - ROAD_W / 2   // = 85
-  private RR         = GAME_W / 2 + ROAD_W / 2   // = 265
+  // ── Road curve (distance-based sections) ─────────────────────
+  private curve          = 0
+  private curveTo        = 0
+  private curveDir: -1 | 0 | 1 = 0   // current section: -1=left 0=straight 1=right
+  private nextCurveAt    = 1500       // pd distance when section changes
+  private RL             = GAME_W / 2 - ROAD_W / 2   // = 85
+  private RR             = GAME_W / 2 + ROAD_W / 2   // = 265
 
   // ── Race stats ────────────────────────────────────────────────
   private raceElapsed   = 0
@@ -165,11 +179,13 @@ class RaceScene extends Phaser.Scene {
   // ── Input ────────────────────────────────────────────────────
   private keys!:     Phaser.Types.Input.Keyboard.CursorKeys
   private spaceKey!: Phaser.Input.Keyboard.Key
+  private lowKey!:   Phaser.Input.Keyboard.Key   // Z = low gear
+  private highKey!:  Phaser.Input.Keyboard.Key   // X = high gear
 
   // ── Timers ───────────────────────────────────────────────────
   private tTraffic = 0; private tIncoming = 0
   private tCop     = 0; private tFuel     = 0
-  private tRamp    = RAMP_EVERY; private tBanner = 0
+  private tBanner = 0
 
   private difficulty: 'easy' | 'medium' | 'hard' = 'easy'
   private theme = 'night_city'
@@ -182,14 +198,16 @@ class RaceScene extends Phaser.Scene {
     const lvl  = raceBridge.playerLevel
     this.difficulty = lvl <= 2 ? 'easy' : lvl === 3 ? 'medium' : 'hard'
 
-    this.curve = this.curveTo = this.curveAngle = 0
+    this.curve = this.curveTo = 0
+    this.curveDir   = 0
+    this.nextCurveAt = 1500   // first 1500 distance units are straight
     this.RL = GAME_W / 2 - ROAD_W / 2; this.RR = GAME_W / 2 + ROAD_W / 2
     this.raceElapsed   = 0
     this.carsDestroyed = 0
     // Start player in right half, lane 3 (outermost forward lane)
     this.px = this.RL + LANE_W * 3.5
 
-    this.ps = 0; this.pd = 0; this.topSpd = TOP_SPEED
+    this.ps = 0; this.pd = 0; this.topSpd = HIGH_GEAR_TOP
     this.fuel         = 1.0 - (raceBridge.gridPosition - 1) * 0.05
     this.ammo         = START_AMMO
     this.score        = 0
@@ -210,7 +228,7 @@ class RaceScene extends Phaser.Scene {
 
     const si = SPAWNS[this.difficulty]
     this.tTraffic = si.traffic; this.tIncoming = si.incoming
-    this.tCop = si.cop; this.tFuel = si.fuel; this.tRamp = RAMP_EVERY
+    this.tCop = si.cop; this.tFuel = si.fuel
 
     this.gBg   = this.add.graphics().setDepth(0)
     this.gRoad = this.add.graphics().setDepth(1)
@@ -251,6 +269,8 @@ class RaceScene extends Phaser.Scene {
 
     this.keys     = this.input.keyboard!.createCursorKeys()
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE)
+    this.lowKey   = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.Z)
+    this.highKey  = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.X)
 
     raceBridge.fuelLevel        = this.fuel
     raceBridge.raceScore        = 0
@@ -283,24 +303,27 @@ class RaceScene extends Phaser.Scene {
 
     this.raceElapsed += dt
 
-    // ── Road curve (scanline perspective) ───────────────────
-    this.curveAngle += dt * 0.22
-    this.curveTo     = Math.sin(this.curveAngle) * 0.12
-    this.curve      += (this.curveTo - this.curve) * Math.min(1, dt * 1.6)
-    this.px         += this.curve * this.scrollSpd * dt * 0.3
-
     // ── Input ────────────────────────────────────────────────
-    const locked = this.time.now < this.lockUntil
-    const up     = !locked && this.keys.up.isDown
-    const down   = !locked && this.keys.down.isDown
-    const left   = !locked && this.keys.left.isDown
-    const right  = !locked && this.keys.right.isDown
-    const shoot  = !locked && Phaser.Input.Keyboard.JustDown(this.spaceKey)
+    const locked  = this.time.now < this.lockUntil
+    const highG   = !locked && this.highKey.isDown
+    const lowG    = !locked && !highG && this.lowKey.isDown
+    const brake   = !locked && this.keys.down.isDown
+    const left    = !locked && this.keys.left.isDown
+    const right   = !locked && this.keys.right.isDown
+    const shoot   = !locked && Phaser.Input.Keyboard.JustDown(this.spaceKey)
 
-    // Forward speed
-    if (up)        this.ps = Math.min(this.ps + ACCEL * dt, this.topSpd)
-    else if (down) this.ps = Math.max(this.ps - BRAKE_DEC * dt, 0)
-    else           this.ps = Math.max(this.ps - COAST_DEC * dt, 0)
+    // ── Two-gear speed ────────────────────────────────────────
+    if (highG) {
+      this.ps = Math.min(this.ps + HIGH_GEAR_ACCEL * dt, HIGH_GEAR_TOP)
+    } else if (lowG) {
+      // Maintain constant low-gear speed
+      const diff = LOW_GEAR_TOP - this.ps
+      this.ps += Math.sign(diff) * Math.min(Math.abs(diff), LOW_GEAR_ACCEL * dt)
+    } else if (brake) {
+      this.ps = Math.max(this.ps - BRAKE_DEC * dt, 0)
+    } else {
+      this.ps = Math.max(this.ps - COAST_DEC * dt, 0)
+    }
 
     // Lateral drag
     if (left)  this.px -= LATERAL_SPD * dt
@@ -317,11 +340,29 @@ class RaceScene extends Phaser.Scene {
     this.scrollSpd   = this.ps
     this.roadScrollY = (this.roadScrollY + this.scrollSpd * dt) % CH
     this.pd         += this.ps * dt
-    this.fuel       -= (FUEL_BASE + this.ps * FUEL_SPD) * dt
+    // Fuel: time-based drain + extra burn in high gear
+    const gearMult  = highG ? 2.2 : lowG ? 1.0 : 0.6
+    this.fuel       -= (FUEL_BASE + this.ps * FUEL_SPD) * gearMult * dt
     this.fuel        = Math.max(0, this.fuel)
 
-    this.tRamp -= dt
-    if (this.tRamp <= 0) { this.topSpd = Math.min(this.topSpd + SPEED_RAMP, 640); this.tRamp = RAMP_EVERY }
+    // ── Road curve (distance-based sections, only advances when moving) ──
+    if (this.ps > 5 && this.pd >= this.nextCurveAt) {
+      if (this.curveDir === 0) {
+        // Straight → pick a curve direction
+        this.curveDir   = Math.random() < 0.5 ? -1 : 1
+        this.curveTo    = this.curveDir * CURVE_MAX
+        this.nextCurveAt = this.pd + CURVE_DIST_MIN + Math.random() * (CURVE_DIST_MAX - CURVE_DIST_MIN)
+      } else {
+        // Curve → go straight
+        this.curveDir   = 0
+        this.curveTo    = 0
+        this.nextCurveAt = this.pd + STRAIGHT_DIST_MIN + Math.random() * (STRAIGHT_DIST_MAX - STRAIGHT_DIST_MIN)
+      }
+    }
+    this.curve += (this.curveTo - this.curve) * Math.min(1, dt * 2.2)
+    // Drift player laterally with road curve (only when moving)
+    if (this.ps > 10) this.px += this.curve * this.scrollSpd * dt * 0.25
+    this.px = Math.max(this.RL + PL_W * 0.6, Math.min(this.RR - PL_W * 0.6, this.px))
 
     // Crash spin animation
     if (this.spinning) {
@@ -369,6 +410,7 @@ class RaceScene extends Phaser.Scene {
     this.spinning  = true
     this.spinSpeed = 680
     this.invUntil  = this.time.now + INVINCE_MS
+    this.fuel      = Math.max(0, this.fuel - 0.10)   // -10% fuel per crash
     this.spawnCrashParticles(ex, ey)
     playCrash(true)
     if (raceBridge.onCrash) raceBridge.onCrash()
@@ -420,52 +462,60 @@ class RaceScene extends Phaser.Scene {
   }
 
   // ─── Spawn ────────────────────────────────────────────────────
+  private spawnCar(li: number, type: Car['type'], color: number, vy: number): Car {
+    const lc = this.allLaneCenters()
+    return {
+      x: lc[li], y: -30, laneIdx: li, targetLane: li,
+      vy, type, color, dark: this.darken(color), alive: true, flashT: 0, blockCD: 0,
+    }
+  }
+
   private spawnEntities(dt: number) {
     const si = SPAWNS[this.difficulty]
-    const lc = this.allLaneCenters()
+    const sp = Math.max(this.scrollSpd, 60)  // minimum spawn speed for VY
 
     // Forward traffic → right 2 lanes (L2, L3)
     this.tTraffic -= dt
     if (this.tTraffic <= 0) {
       const li  = Math.random() < 0.5 ? 2 : 3
-      const col = TRAFFIC_COLORS[Math.floor(Math.random() * TRAFFIC_COLORS.length)]
-      this.cars.push({
-        x: lc[li], y: -30, laneIdx: li,
-        vy: this.scrollSpd * 0.40,
-        type: 'traffic', color: col, dark: this.darken(col), alive: true, flashT: 0,
-      })
+      const r   = Math.random()
+      let type: Car['type'], color: number, vy: number
+      if (r < 0.35) {
+        type = 'yellow'; color = YELLOW_COLOR; vy = sp * 0.42
+      } else if (r < 0.60) {
+        type = 'red'; color = RED_COLOR; vy = sp * 0.45
+      } else if (r < 0.80) {
+        type = 'blue'; color = BLUE_COLOR; vy = sp * 0.38
+      } else {
+        type = 'truck'; color = TRUCK_COLOR; vy = sp * 0.28
+      }
+      this.cars.push(this.spawnCar(li, type, color, vy))
       this.tTraffic = si.traffic * (0.75 + Math.random() * 0.5)
     }
 
-    // Oncoming → left 2 lanes (L0, L1) — come from top, move DOWN fast
+    // Oncoming → left 2 lanes (L0, L1)
     this.tIncoming -= dt
     if (this.tIncoming <= 0) {
-      const li = Math.random() < 0.5 ? 0 : 1
-      this.cars.push({
-        x: lc[li], y: -30, laneIdx: li,
-        vy: this.scrollSpd * 1.8 + 100,
-        type: 'incoming', color: 0xffbb00, dark: 0xaa7700, alive: true, flashT: 0,
-      })
+      const li  = Math.random() < 0.5 ? 0 : 1
+      const col = INCOMING_COLORS[Math.floor(Math.random() * INCOMING_COLORS.length)]
+      this.cars.push(this.spawnCar(li, 'incoming', col, sp * 1.8 + 100))
       this.tIncoming = si.incoming * (0.65 + Math.random() * 0.7)
     }
 
-    // Cop → right 2 lanes (L2, L3)
+    // Cop → right 2 lanes
     this.tCop -= dt
     if (this.tCop <= 0) {
       const li = Math.random() < 0.5 ? 2 : 3
-      this.cars.push({
-        x: lc[li], y: -30, laneIdx: li,
-        vy: this.scrollSpd * 0.50,
-        type: 'cop', color: 0x111166, dark: 0x080840, alive: true, flashT: 0,
-      })
+      this.cars.push(this.spawnCar(li, 'cop', 0x111166, sp * 0.50))
       this.tCop = si.cop * (0.85 + Math.random() * 0.3)
     }
 
-    // Fuel pickup → any lane
+    // Fuel car → any lane (moving pickup, collect to refuel)
     this.tFuel -= dt
     if (this.tFuel <= 0) {
-      const li = Math.floor(Math.random() * 4)
-      this.fuels.push({ x: lc[li], y: -28, vy: this.scrollSpd * 0.40, laneIdx: li, alive: true })
+      const li  = Math.floor(Math.random() * 4)
+      const col = FUEL_CAR_COLORS[Math.floor(Math.random() * FUEL_CAR_COLORS.length)]
+      this.cars.push(this.spawnCar(li, 'fuel_car', col, sp * 0.48))
       this.tFuel = si.fuel * (0.8 + Math.random() * 0.4)
     }
   }
@@ -473,18 +523,42 @@ class RaceScene extends Phaser.Scene {
   private moveEntities(dt: number) {
     for (const c of this.cars) {
       c.y += c.vy * dt
-      // Track road curve: x = lane center at car's current screen y
-      c.x = this.roadCenterAt(c.y) - ROAD_W / 2 + LANE_W * (c.laneIdx + 0.5)
+      if (c.blockCD > 0) c.blockCD -= dt
+
+      // Red: block player — change lane toward player when close
+      if (c.type === 'red' && c.blockCD <= 0 && Math.abs(c.y - PLAYER_Y) < 120) {
+        const playerLane = this.px < GAME_W / 2 ? 2 : 3
+        if (c.targetLane !== playerLane) {
+          c.targetLane = playerLane
+          c.blockCD    = 3.0
+        }
+      }
+
+      // Blue: random aggressive lane change every 2-4s
+      if (c.type === 'blue' && c.blockCD <= 0) {
+        const newLane = Math.random() < 0.5 ? 2 : 3
+        c.targetLane = newLane
+        c.blockCD    = 2.0 + Math.random() * 2.0
+      }
+
+      // Smooth lateral movement toward targetLane
+      if (c.type === 'red' || c.type === 'blue') {
+        const targetX = this.roadCenterAt(c.y) - ROAD_W / 2 + LANE_W * (c.targetLane + 0.5)
+        const dx = targetX - c.x
+        c.x += Math.sign(dx) * Math.min(Math.abs(dx), LATERAL_SPD * 0.7 * dt)
+        // Update laneIdx when close to target
+        if (Math.abs(dx) < 4) c.laneIdx = c.targetLane
+      } else {
+        // Track road curve for non-blocking cars
+        c.x = this.roadCenterAt(c.y) - ROAD_W / 2 + LANE_W * (c.laneIdx + 0.5)
+      }
+
       if (c.type === 'cop') c.flashT += dt
     }
     for (const b of this.bullets) b.y -= 660 * dt
-    for (const f of this.fuels) {
-      f.y += f.vy * dt
-      f.x = this.roadCenterAt(f.y) - ROAD_W / 2 + LANE_W * (f.laneIdx + 0.5)
-    }
-    this.cars    = this.cars.filter(c => c.alive && c.y < CH + 50)
+    this.cars    = this.cars.filter(c => c.alive && c.y < CH + 80)
     this.bullets = this.bullets.filter(b => b.alive && b.y > -20)
-    this.fuels   = this.fuels.filter(f => f.alive && f.y < CH + 40)
+    this.fuels   = []  // fuel pickups replaced by fuel_car type
   }
 
   // ─── Collisions ───────────────────────────────────────────────
@@ -493,53 +567,60 @@ class RaceScene extends Phaser.Scene {
 
     for (const c of this.cars) {
       if (!c.alive) continue
-      if (Math.abs(c.x - px) > PL_W / 2 + CAR_W / 2 + 2) continue
-      if (Math.abs(c.y - py) > PL_H / 2 + CAR_H / 2 + 2) continue
+      const hitW = c.type === 'truck' ? CAR_W * 1.6 : CAR_W
+      const hitH = c.type === 'truck' ? CAR_H * 1.5 : CAR_H
+      if (Math.abs(c.x - px) > PL_W / 2 + hitW / 2 + 2) continue
+      if (Math.abs(c.y - py) > PL_H / 2 + hitH / 2 + 2) continue
 
-      c.alive = false
-      if (c.type === 'cop') {
-        // Ram cop → points, no life loss
+      if (c.type === 'fuel_car') {
+        // Collect fuel car
+        c.alive = false
+        this.fuel = Math.min(1.0, this.fuel + 0.30)
+        this.spawnFloat(c.x, c.y, '+FUEL 30%', '#00ff88')
+        this.spawnCollectParticles(c.x, c.y, 0x22cc55)
+        playFuel()
+        if (raceBridge.onFuelCollected) raceBridge.onFuelCollected()
+      } else if (c.type === 'cop') {
+        c.alive = false
         const pts = this.difficulty === 'hard' ? 500 : this.difficulty === 'medium' ? 350 : 200
-        this.score += pts
-        this.carsDestroyed++
+        this.score += pts; this.carsDestroyed++
         this.spawnFloat(c.x, c.y, `+${pts} RAM`, '#ff6600')
         this.spawnCollectParticles(c.x, c.y, 0xff4400)
+      } else if (c.type === 'truck') {
+        // Trucks: instant life loss (skip spin system)
+        c.alive = false
+        if (this.time.now >= this.invUntil) {
+          this.fuel = Math.max(0, this.fuel - 0.20)  // trucks cost double fuel
+          this.failureCount++
+          this.invUntil = this.time.now + 3500
+          raceBridge.lives = MAX_FAILURES - this.failureCount
+          this.spawnCrashParticles(c.x, c.y)
+          playCrash(true)
+          if (this.failureCount >= MAX_FAILURES) { this.endRace(false); return }
+          this.spawnFloat(c.x, c.y, 'TRUCK CRASH!', '#ff2200')
+        }
       } else {
         this.onCrash(c.x, c.y)
       }
     }
 
-    // Bullets hit ALL car types (not cop — you ram those)
+    // Bullets: can hit yellow/red/blue/truck/incoming, not cop or fuel_car
     for (const b of this.bullets) {
       if (!b.alive) continue
       for (const c of this.cars) {
-        if (!c.alive || c.type === 'cop') continue
-        // Wide x-detection: bullet in same lane area
+        if (!c.alive || c.type === 'cop' || c.type === 'fuel_car') continue
         if (Math.abs(c.x - b.x) > LANE_W * 0.55) continue
         if (Math.abs(c.y - b.y) > CAR_H / 2 + PL_H / 2 + 4) continue
 
         b.alive = false; c.alive = false
         this.carsDestroyed++
-        const pts = c.type === 'incoming' ? 150 : 80
+        const pts = c.type === 'incoming' ? 150 : c.type === 'truck' ? 300 : 80
         this.score += pts
         this.ammo   = Math.min(START_AMMO, this.ammo + AMMO_ON_KILL)
         this.spawnFloat(c.x, c.y, `+${pts}`, c.type === 'incoming' ? '#00ffcc' : '#ffdd00')
         this.spawnExplosion(c.x, c.y)
         break
       }
-    }
-
-    // Fuel pickups
-    for (const f of this.fuels) {
-      if (!f.alive) continue
-      if (Math.abs(f.x - px) > PL_W + 12) continue
-      if (Math.abs(f.y - py) > PL_H + 12) continue
-      f.alive = false
-      this.fuel = Math.min(1.0, this.fuel + 0.25)
-      this.spawnFloat(f.x, f.y, '+FUEL', '#00ff88')
-      this.spawnCollectParticles(f.x, f.y, 0x22cc55)
-      playFuel()
-      if (raceBridge.onFuelCollected) raceBridge.onFuelCollected()
     }
   }
 
@@ -865,9 +946,15 @@ class RaceScene extends Phaser.Scene {
     const g = this.gEnt
     g.clear()
 
-    // Traffic / cop / incoming
+    // Traffic / cop / incoming — typed rendering
     for (const c of this.cars) {
-      if (c.type === 'cop') {
+      if (c.type === 'truck') {
+        // Trucks: wide, tall
+        this.drawCar(g, c.x, c.y, Math.round(CAR_W * 1.6), Math.round(CAR_H * 1.5), c.color, c.dark)
+        // Cab stripe
+        g.fillStyle(0xaaaaaa, 0.4)
+        g.fillRect(c.x - CAR_W * 0.7, c.y - CAR_H * 0.7, CAR_W * 1.4, CAR_H * 0.3)
+      } else if (c.type === 'cop') {
         this.drawCar(g, c.x, c.y, CAR_W + 4, CAR_H, c.color, c.dark)
         const fo = Math.floor(c.flashT * 6) % 2 === 0
         g.fillStyle(fo ? 0xff1111 : 0x1111ff); g.fillRect(c.x - 7, c.y - CAR_H / 2 - 5, 14, 5)
@@ -875,12 +962,20 @@ class RaceScene extends Phaser.Scene {
           g.fillStyle(ci % 2 === 0 ? 0xffffff : 0x000000, 0.55)
           g.fillRect(c.x - CAR_W / 2 + ci * 4, c.y + 2, 4, 4)
         }
+      } else if (c.type === 'fuel_car') {
+        // Fuel car: glowing, multicolor halo
+        this.drawCar(g, c.x, c.y, CAR_W, CAR_H, c.color, c.dark)
+        const pulse = 0.3 + 0.3 * Math.sin(this.raceElapsed * 6)
+        g.fillStyle(c.color, pulse); g.fillCircle(c.x, c.y, 14)
+        g.fillStyle(0xffffff, 0.9)
+        g.fillRect(c.x - 1, c.y - 5, 2, 10); g.fillRect(c.x - 5, c.y - 1, 10, 2)
       } else if (c.type === 'incoming') {
         this.drawCar(g, c.x, c.y, CAR_W, CAR_H, c.color, c.dark)
         if (c.y > CH * 0.52) {
           g.lineStyle(2, 0xff0000, 0.4); g.strokeRect(c.x - CAR_W / 2 - 2, c.y - CAR_H / 2 - 2, CAR_W + 4, CAR_H + 4)
         }
       } else {
+        // yellow / red / blue — standard car
         this.drawCar(g, c.x, c.y, CAR_W, CAR_H, c.color, c.dark)
       }
     }
@@ -889,13 +984,6 @@ class RaceScene extends Phaser.Scene {
     for (const b of this.bullets) {
       g.fillStyle(0xffff00, 0.25); g.fillRect(b.x - 4, b.y - 8, 8, 16)
       g.fillStyle(0xffee33);       g.fillRect(b.x - 1, b.y - 6, 3, 12)
-    }
-
-    // Fuel pickups
-    for (const f of this.fuels) {
-      g.fillStyle(0x22cc55); g.fillCircle(f.x, f.y, 11)
-      g.fillStyle(0x116622); g.fillCircle(f.x, f.y, 8)
-      g.fillStyle(0xffffff); g.fillRect(f.x - 1, f.y - 5, 2, 10); g.fillRect(f.x - 5, f.y - 1, 10, 2)
     }
 
     // Player
@@ -1122,5 +1210,7 @@ export const PHASER_CONFIG = (containerId: string): Phaser.Types.Core.GameConfig
   parent: containerId,
   scene: RaceScene,
   audio: { disableWebAudio: false },
+  // Use setTimeout loop so game keeps running when browser tab is in background
+  fps: { forceSetTimeOut: true },
   scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
 })
