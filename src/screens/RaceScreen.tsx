@@ -78,7 +78,7 @@ export default function RaceScreen() {
     ? `P${gridPosition} · ${(startDelayMs / 1000).toFixed(1)}s delay`
     : `P${gridPosition} · POLE`
 
-  const livesArr = Array.from({ length: 3 }, (_, i) => i < hud.lives)
+  const livesArr = Array.from({ length: 3 }, (_, i) => i < hud.lives)  // hud.lives = failures remaining
   const fuelPct  = Math.round(hud.fuel * 100)
   const fuelColor = hud.fuel < 0.2 ? '#ef4444' : hud.fuel < 0.4 ? '#f59e0b' : '#22c55e'
 
@@ -131,10 +131,10 @@ export default function RaceScreen() {
 
         {/* Ammo */}
         <span style={{
-          fontSize: 12, color: hud.ammo > 3 ? '#00ccff' : '#ef4444',
-          flexShrink: 0, minWidth: 30, textAlign: 'right',
+          fontSize: 12, color: hud.ammo > 50 ? '#00ccff' : '#ef4444',
+          flexShrink: 0, minWidth: 34, textAlign: 'right',
         }}>
-          🔫{hud.ammo}
+          🔫{hud.ammo >= 9999 ? '∞' : hud.ammo}
         </span>
       </div>
 
