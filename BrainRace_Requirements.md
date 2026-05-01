@@ -1,5 +1,5 @@
 # BrainRace — Game Requirements Document
-**Last updated: 2026-04-29**
+**Last updated: 2026-04-30**
 
 ---
 
@@ -21,15 +21,18 @@ Qualifier Quiz (5 Qs, 15s each)
         ↓
 Grid Position 1–5 (better quiz score = pole position, earlier start)
         ↓
-90-Second Road Fighter Race
-  - Dodge traffic (slow cars, oncoming cars, trucks)
-  - Collect pickups (coins, fuel, nitro, oil slicks)
-  - Manage draining fuel meter
+Road Fighter Race (fuel-limited, no timer)
+  - 4-lane road: 2 oncoming (left) + 2 forward (right) + center divider
+  - Shoot oncoming + traffic cars with SPACE bar
+  - Ram cop cars for bonus points
+  - 3 lives (each = 3 spins → respawn; 3 respawns = game over)
+  - Collect fuel pickups + hit checkpoints for +25% fuel
+  - Race ends: finish line (dist 20000) OR fuel = 0
         ↓
 Post-Race: Score, XP, Coins, Personal Bests
 ```
 
-**Key design principle:** Brain and reflex are fully separated. The quiz is pure knowledge. The race is pure driving. Mixing them hurt both.
+**Key design principle:** Brain and reflex are fully separated. The quiz is pure knowledge. The race is pure driving.
 
 ---
 
@@ -55,7 +58,7 @@ Post-Race: Score, XP, Coins, Personal Bests
 
 ---
 
-## Implementation Status (as of 2026-04-29)
+## Implementation Status (as of 2026-04-30)
 
 ### ✅ Phase 1 — Scaffold (complete)
 - Project structure, Vite + React + TypeScript + Phaser 3 + Zustand
@@ -68,127 +71,133 @@ Post-Race: Score, XP, Coins, Personal Bests
 - Offline fallback question bank (~200 questions)
 - All TypeScript compiling clean
 
-### ✅ Phase 2 — Road Fighter Redesign (complete)
+### ✅ Phase 2 — Qualifier + Race Scaffold (complete)
 - Pre-race Qualifier: 5 questions, 15s timer, circular SVG progress arc
 - Grid position determined by score vs AI scores `[1, 2, 3, 4]`
 - `GRID_DELAY_MS = { 1:0, 2:800, 3:1600, 4:2400, 5:3200 }`
-- P5 also starts with 80% fuel as additional penalty
-- Road Fighter race scene (`src/game/RaceScene.ts`)
-- Traffic: `slow` (same-direction), `oncoming` (head-on, yellow), `truck` (2-lane wide)
-- Pickups: `coin` (+50 score), `fuel` (+28% fuel), `nitro` (3s speed boost), `oil` (spin crash)
-- Fuel meter drains continuously — empty = game over
-- Crash physics: spin + invincibility frames + camera shake + spark particles
-- Speed ramp: 200→520 px/s over 90s (+25 every 30s)
+- P5 starts with 80% fuel as additional penalty
+- Basic Road Fighter race scene (`src/game/RaceScene.ts`)
 - `raceBridge` pattern for Phaser ↔ React state sharing
-- QualiScreen, RaceScreen (HUD), PostRaceScreen all updated
-- Questions pool auto-resets when exhausted (pool < 10 → use all)
-- Dev server confirmed working end-to-end in browser
+- QualiScreen, RaceScreen (HUD), PostRaceScreen all built
 
-### ✅ Phase 3 — Visual Overhaul (complete as of 2026-04-29)
-All 10 items done — see detail section below.
+### ✅ Phase 3 — Road Fighter Redesign + Visual Overhaul (complete as of 2026-04-30)
+Full redesign — see detail section below.
 
-### 📋 Phase 4 — Multiplayer (planned)
+### 📋 Phase 4 — Polish & Gameplay Depth (planned)
+### 📋 Phase 5 — Multiplayer (planned)
 See below.
 
 ---
 
-## Phase 3 — Visual Overhaul (✅ Complete)
+## Phase 3 — Road Fighter Redesign + Visual Overhaul (✅ Complete as of 2026-04-30)
 
 ### Goal
-Rich, atmospheric visuals that feel polished and fun — while keeping the top-down 2D perspective in Phaser 3.
-
-**Visual reference:** Road Fighter (arcade classic) + Deadly Descent (particle richness, atmospheric environments).
-
-### What Was Delivered
+Full redesign of the race scene to match Road Fighter arcade feel: 4-lane road with center divider, battle car player, shooting mechanics, spin/failure life system, road surface labels, and smooth curve illusion.
 
 ---
 
-### 3A — Environment & Road ✅
-- Dark asphalt road with subtle banding; edge white lines
-- **Track themes (3, player-selectable in RaceSetupScreen):**
-  1. **Night City** — dark navy sky + stars + neon horizon, dark asphalt, cyan lane dashes, red/white curbs, city building silhouettes with glowing windows, lamp posts + urban scenery
-  2. **Desert Highway** — warm orange-amber sky with sun disc, sandy tan road, orange curbs, warm yellow dashes, mesa/dune background, cacti + rocks on roadside
-  3. **Mountain Pass** — deep purple-blue sky + stars, gray concrete road, lavender dashes, white/silver curbs, snow-capped mountain peaks background, pine trees + snow rocks
-- Theme config drives: sky gradient, road color, curb color pair, lane dash color, guardrail tint, background element draw function, near scenery draw function
-- Animated red/white (or themed) curb stripes, scrolling guardrail posts + beam with colored glow tint
-- `raceBridge.trackTheme` set from store before race; `RaceScene.create()` builds `ThemeConfig` from it
+### 3A — Road & Environment ✅
+- **4-lane gray asphalt road** (`ROAD_W=280`, `LANE_W=70`): left 2 lanes = oncoming traffic; right 2 lanes = forward traffic + player
+- **Center divider:** solid double yellow line separating oncoming from forward lanes
+- **Lane markings:** dashed white lines within each side
+- **Red/white animated curb stripes** on both edges
+- **Road curve illusion:** `roadCX` oscillates via `sin(t × 0.28) × 55`; all road elements (asphalt, bands, lane lines, curbs, spawn points) shift with it each frame. Background scenery shifts in opposite direction.
+- **Track themes** (3, player-selectable): Night City / Desert Highway / Mountain Pass — drive sky, shoulder, and background scenery
+- **Road markers painted on surface:** START (blue oval, pd=0), CHECKPOINT (green oval, pd=5000/10000/15000), FINISH (gold oval, pd=20000) — each a colored stripe + oval + label text, scrolling with `screenY = PLAYER_Y - (dist - pd)`
 
-### 3B — Vehicle Art ✅
-- **Player car:** headlight projection cones, drop shadow, windshield, hood sheen, rear spoiler, exhaust trail, nitro triple-flame (purple/cyan/white core), crash spin + lateral drift
-- **Traffic sedan:** raised cabin, windshield, taillights, side wheels
-- **Oncoming racer:** low profile, racing stripe, bright forward headlights with glow halos
-- **Truck:** cab + trailer distinction, exhaust stacks, 6-wheel layout
-- All vehicles: `CAR_W=20, CAR_H=34` (smaller = better gameplay visibility)
-- Hit traffic car is destroyed/spliced immediately on collision
+### 3B — Player Battle Car ✅
+- **Armored body** (battle red `#cc1111`), side armor plates, roof-mounted turret barrel
+- **Exhaust smoke** at high speed
+- **Spin animation** on crash: `spinAngle` accumulates, damped over time
+- **Invincibility flashing** after crash (alternates visible/invisible every 110ms)
+- **Continuous lateral drag** at `LATERAL_SPD=220 px/s` (hold LEFT/RIGHT)
+- **Manual speed:** UP = accelerate, release = coast, DOWN = brake
 
-### 3C — Particle Systems ✅
-| Event | Effect |
-|---|---|
-| Player exhaust (continuous) | Grey/blue smoke puffs from rear; nitro = blue flame particles |
-| Nitro active | Triple exhaust color: purple / cyan / white core; 3s continuous burst |
-| Coin collected | Gold/amber radial burst (10 particles) |
-| Fuel collected | Green burst (8 particles) |
-| Crash (soft) | Orange spark burst (10 sparks) + speed penalty |
-| Crash (hard) | Large orange+red spark burst (20 sparks) + heavy penalty |
-| Oil slick | Purple smoke puffs (8 large slow particles) |
-| Score float | "+50", "FUEL!", "NITRO!" floating text rising from pickup position |
+### 3C — Cars & Traffic ✅
+- **Oncoming cars** (lanes L0/L1, left half): spawn at top, move DOWN at `scrollSpd × 1.8 + 100`; yellow color; red warning outline when near player
+- **Traffic cars** (lanes L2/L3, right half): spawn at top, move DOWN at `scrollSpd × 0.40`; 5 earth-tone colors
+- **Cop cars** (right half): dark blue with flashing red/blue light bar + checkerboard stripes; RAM = bonus points, no life loss
+- **All sizes:** `CAR_W=14, CAR_H=24`; player `PL_W=16, PL_H=28`
+- **AI racers removed entirely** — pure single-player
 
-### 3D — Screen & Camera Effects ✅
-| Trigger | Effect |
-|---|---|
-| Any crash | Camera shake (400ms soft, ~900ms hard) |
-| Hard crash | Camera flash (orange-red tint) |
-| Nitro active | Cyan glow vignette on all 4 screen edges |
-| Speed > 340 px/s | Radial speed lines (20 streaks, opacity + length tied to speed) |
-| Fuel < 15% | Pulsing red border around full screen |
-| Checkpoint hit | Green camera flash + "+CHECKPOINT +10s" notification |
-| Finish line crossed | White camera flash + "🏁 FINISH!" notification |
-| Qualifier P1 | Confetti shower (36 pieces, random colors + sizes) |
+### 3D — Shooting System ✅
+- **SPACE bar** fires bullet upward from player center
+- **10,000 starting ammo** (`START_AMMO=10000`); HUD shows `∞` when ≥ 9999
+- **Wide hit detection:** `LANE_W × 0.55` (~38px) x-tolerance so bullets hit regardless of exact lane alignment
+- **Hits all car types except cop** (you ram cops, not shoot them)
+- **Explosion particles** (16-particle radial burst) on bullet kill
+- **+150 pts** for oncoming kill, **+80 pts** for traffic kill; **+5 ammo** per kill
+- **Float text** shows score at kill position
 
-### 3E — HUD ✅
-- **Top strip (React overlay):** ✕ quit button, P{n}·delay label, centered countdown timer (red + pulse when ≤15s), score, checkpoint count badge
-- **In-canvas HUD:**
-  - Segmented fuel gauge (10 segments, color-coded green→yellow→red)
-  - Speedometer text box (km/h, positioned right of fuel bar)
-  - Nitro bar (under speed box, shown when nitro active)
-  - Mini-map (14×110px top-right, player dot + 4 AI dots + checkpoint marks)
-  - Pickup notification badge (slides up from top-center, fades after 1.2–2.2s)
-  - Score float text at pickup position
+### 3E — Spin / Failure System ✅
+- **3 spins per life** (`MAX_SPINS=3`): each crash increments `spinCount`; on 3rd spin → `failureCount++`, `spinCount` resets, respawn with extra invincibility + 30% fuel floor
+- **3 failures = game over** (`MAX_FAILURES=3`)
+- **`raceBridge.lives`** = `MAX_FAILURES - failureCount` (3→0); React HUD shows ♥ hearts
+- **Spin pips** in left HUD strip show current `spinCount` progress
+- **Invincibility:** `INVINCE_MS=2500` after each spin; `3500ms` after respawn
 
-### 3F — Qualifier Screen Polish ✅
-- Circular SVG countdown timer (r=36, color transitions green→yellow→red)
-- Staggered answer card slide-in animations
-- Correct answer: green background + `scorePop` bounce + green key badge
-- Wrong answer: red background + `shake` animation + red key badge
-- Timeout: correct answer highlighted with arrow indicator
-- Results page: confetti on P1, grid position emoji + color, question breakdown cards
-- Back button ("← Home") in question header and results page
+### 3F — HUD ✅
+**React overlay (RaceScreen.tsx):**
+- ✕ quit button, grid position + pole/delay label
+- ♥♥♥ lives (grays out on failure)
+- Score (gold, center)
+- Fuel % (color-coded red/amber/green)
+- Ammo count (∞ or number)
 
-### 3G — Sound Design ✅
-All sounds implemented in `src/game/audioEngine.ts` via Web Audio API (no audio files):
-| Event | Sound |
-|---|---|
-| Engine (continuous) | Oscillator hum, frequency tracks speed |
-| Coin | Bright ping (880Hz) |
-| Fuel | Lower "glug" tone |
-| Nitro | Rising engine roar spike |
-| Crash (soft) | Low thud burst |
-| Crash (hard) | Harsher low-frequency hit |
-| Oil skid | Descending skid tone |
+**In-canvas HUD (RaceScene.ts):**
+- Left mini-map strip: player dot position, checkpoint marks, finish marker
+- Right fuel bar: color-coded, updates every frame
+- Bottom speed bar: proportion of top speed
+- Spin count pips: orange = used, dark = remaining
+- Low fuel border: pulsing red frame when fuel < 15%
+- Speed lines: at high speed
+- Float score texts: rise from kill/pickup positions
 
-Audio lifecycle: lazy-init on first user gesture; `stopEngine()` called explicitly in `RaceScreen` useEffect cleanup AND `handleQuit()` — not just via Phaser lifecycle — to guarantee silence on all exit paths.
+### 3G — Question API Cascade ✅
+Three-tier fallback so questions always work:
+1. **Vercel `/api/questions`** — production + `vercel dev`
+2. **Browser direct Anthropic call** — `npm run dev` with `VITE_ANTHROPIC_API_KEY` in `.env`
+3. **Offline fallback** — `src/data/fallback-questions.json`; topic override filters by keyword (needs ≥5 matches)
 
-### Phase 3 Additional Fixes Delivered
-- **Coin pickup collision fix:** `drawPickup` draws at local `cy=0`; `g.y = item.y` already positions in world space. Previous double-positioning placed visuals off-screen.
-- **Qualifier deferred-answer pattern:** `pendingRef` stores answer locally; Zustand `submitQualiAnswer` deferred 900ms to allow animation to run against the correct question index.
-- **`quitRace()` store action:** resets state without awarding XP/coins/streak. Quit dialog in `RaceScreen` with "No XP, coins, or streak will be saved" message.
-- **Back buttons:** on QualiScreen active question + results page; navigates to `/home` and resets race state.
-- **Checkpoints:** 4 checkpoints at distance 350/750/1200/1800 units (+10s each); finish line at 2500. Neon green lines scroll toward player (1 game unit = 20 screen pixels). Finish line = checkerboard pattern.
-- **Mini-map:** top-right 14×110px panel; player dot (theme color), 4 simulated AI dots, checkpoint markers.
+### 3H — Sound ✅
+Web Audio API (no audio files): engine hum (tracks speed), fuel pickup glug, crash thud. `stopEngine()` called in RaceScreen useEffect cleanup AND `handleQuit()`.
+
+### raceBridge Updates (Phase 3) ✅
+```typescript
+// Added:
+lives: number   // MAX_FAILURES - failureCount (3→0)
+ammo: number    // remaining bullets
+
+// Removed:
+onCoinCollected: null  // no coins in new design
+onNitroCollected: null // no nitro in new design
+```
+
+### Store Updates (Phase 3) ✅
+- `tickRace` simplified: only polls `raceBridge.gameOver` / `raceBridge.raceFinished`; no countdown timer
+- `startRace` initializes `raceBridge.lives = 3`, `raceBridge.ammo = 10` (overwritten by Phaser `create()`)
+- `endRace` unchanged — XP/coins/streak logic preserved
 
 ---
 
-## Phase 4 — Multiplayer (Firebase Realtime DB)
+## Phase 4 — Polish & Gameplay Depth (📋 Planned)
+
+### Goals
+Make the current single-player race feel more complete and replayable before adding multiplayer.
+
+### Items
+- [ ] Touch / swipe controls for mobile gameplay (left/right drag, tap to shoot)
+- [ ] Additional pickup types: ammo crate (+500 ammo), shield (1 hit block), speed burst (3s boost)
+- [ ] More audio variety: bullet fire SFX, explosion SFX, cop siren
+- [ ] PostRaceScreen: show distance, shots fired, kill count, accuracy %
+- [ ] Replay the race from a different vehicle → compare stats
+- [ ] Per-topic leaderboard (daily top scores by topic)
+- [ ] Google Sign-In option
+- [ ] Level-based difficulty tuning using `raceBridge.playerLevel` — traffic density + spawn intervals per XP tier
+
+---
+
+## Phase 5 — Multiplayer (Firebase Realtime DB)
 
 ### Design
 - Up to 4 players race simultaneously on the same Road Fighter track
@@ -257,21 +266,24 @@ Scoring 5/5 → P1 (no delay). Scoring 0/5 → P5 (3.2s delay + 80% fuel).
 // React → Phaser (set before race starts)
 gridPosition: number
 startDelayMs: number
-playerLevel: number     // affects traffic density (Phase 3)
-playerColor: number     // hex int for player car color
+playerLevel: number     // 1-5; drives difficulty (easy/medium/hard)
+playerColor: number     // unused in current scene (player is always battle-red)
+trackTheme: string      // 'night_city' | 'desert' | 'mountain'
 
 // Phaser → React (updated every frame)
 fuelLevel: number       // 0.0–1.0
 raceScore: number
 distanceTraveled: number
 gameOver: boolean
+raceFinished: boolean
 playerLane: number
+lives: number           // MAX_FAILURES - failureCount (3→0)
+ammo: number            // remaining bullets
 
-// Event callbacks (React sets before race, Phaser fires)
-onCoinCollected: (() => void) | null
-onNitroCollected: (() => void) | null
+// Event callbacks
 onFuelCollected: (() => void) | null
 onCrash: (() => void) | null
+onCheckpoint: (() => void) | null
 ```
 
 ### Traffic System

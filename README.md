@@ -2,7 +2,7 @@
 
 > Race with your brain. Answer trivia to earn your grid position. Drive to survive.
 
-BrainRace is a browser-first trivia racing game inspired by Road Fighter. Answer 5 quiz questions before each race — your score determines your starting grid position and start delay. Then race pure reflex: dodge traffic, collect pickups, manage your fuel, hit checkpoints. No questions during the race. Brain and reflex are cleanly separated.
+BrainRace is a browser-first trivia racing game inspired by Road Fighter. Answer 5 quiz questions before each race — your score determines your starting grid position and start delay. Then race pure reflex: dodge traffic, shoot oncoming cars, ram cop cars, manage your fuel, hit checkpoints. No questions during the race. Brain and reflex are cleanly separated.
 
 Questions are **fully personalized** to each player's age, interests, and profession — powered by the Claude AI API.
 
@@ -77,16 +77,19 @@ brain-race/
 ## Game Flow
 
 ```
-Race Setup (topic + track theme)
+Race Setup (topic + track theme + vehicle)
         ↓
 Qualifier Quiz (5 questions, 15s each)
         ↓
 Grid Position 1–5 (better score = pole, no delay)
         ↓
-90-Second Road Fighter Race
-  - 5 lanes, scrolling traffic + pickups
-  - Fuel drains continuously
-  - Checkpoints award +10s each
+Road Fighter Race (fuel-limited, no timer)
+  - 4-lane road: 2 oncoming lanes (left) + 2 forward lanes (right)
+  - Shoot oncoming cars with SPACE — +150 pts + ammo refill
+  - Ram cop cars for bonus points (no life loss)
+  - 3 lives: each life = 3 spins before respawn; 3 respawns = game over
+  - Checkpoints award +25% fuel
+  - Race ends: finish line OR fuel hits 0
         ↓
 Post-Race: Score, XP, Coins, Streak
 ```
@@ -154,15 +157,20 @@ npm run dev
 - `P1` = pole position, no delay. `P5` = 3.2s delay + 80% starting fuel
 - Confetti on P1, answer breakdown on results screen
 
-### Road Fighter Race
-- **5-lane top-down scroller**, Phaser 3 WebGL
-- **Traffic:** `slow` cars (45% speed), `oncoming` cars (160% speed), `trucks` (2-lane, 35% speed)
-- **Pickups:** `coin` (+50 score), `fuel` (+28% tank), `nitro` (3s boost), `oil` (spin crash)
-- **Fuel bar:** drains continuously; hitting 0 = game over
-- **Speed ramp:** 200 → 520 px/s, +25 every 30s
-- **Checkpoints:** 4 checkpoints at distances 350/750/1200/1800 (+10s each), finish line at 2500
-- **Crash physics:** spin + lateral drift + invincibility frames + spark particles; hit car destroyed on collision
-- **Mini-map:** top-right panel shows player dot + 4 AI dots + checkpoint marks
+### Road Fighter Race (current implementation)
+- **4-lane top-down scroller**, Phaser 3 WebGL, pure single-player
+- **4-lane road:** left 2 lanes = oncoming traffic; right 2 lanes = forward traffic + player; double yellow center divider; gray asphalt with white dashed lane lines
+- **Road markers:** START / CHECKPOINT / FINISH painted as colored ovals on road surface, scrolling with the road
+- **Road curves:** road center oscillates via `sin(t × 0.28) × 55` — all road elements shift with it; background parallax shifts opposite direction
+- **Manual acceleration:** UP = accelerate, release = coast, DOWN = brake; LEFT/RIGHT = continuous drag at 220 px/s
+- **Shooting:** SPACE fires bullets upward; 10,000 starting ammo (shows ∞); bullets hit all car types except cops; +150 pts for oncoming, +80 pts for traffic; explosion particles on kill
+- **Cop cars:** ram for points (no life loss); cop has flashing light bar
+- **Lives / spin system:** 3 spins per life → respawn; 3 respawns (failures) → game over; spin count shown as pips in left HUD strip; invincibility frames after each crash
+- **Fuel:** drains continuously based on speed; race ends at fuel=0 or finish line; no countdown timer
+- **Checkpoints** at 5000/10000/15000 distance: +25% fuel each
+- **Finish line** at 20000 distance
+- **Difficulty:** auto-scaled from player XP level (easy/medium/hard → traffic density + spawn rates)
+- **Mini-map:** left strip shows player position, checkpoint marks
 
 ### Track Themes
 Select before each race — changes sky, road, curbs, lane dashes, background, and roadside scenery:
@@ -175,15 +183,16 @@ Select before each race — changes sky, road, curbs, lane dashes, background, a
 
 ---
 
-## Visual Features (Phase 3)
+## Visual Features
 
-- **Parallax layers:** static sky (depth 0), city/mesa/peaks scrolling at 18% road speed (depth 1), near scenery at full speed (depth 4)
-- **Player car:** headlight cones, drop shadow, exhaust smoke trail, nitro triple-flame (purple/cyan/white), crash spin + lateral drift
-- **Traffic:** detailed sedan, oncoming racer, and truck sprites; each with cabin/windshield/wheels/taillights
-- **Particles:** crash sparks (4-color), nitro exhaust, coin/fuel/nitro collect bursts, oil smoke puffs
-- **Screen FX:** speed lines (speed > 340), fuel warning red border pulse (< 15%), nitro cyan vignette, camera shake
-- **HUD:** segmented 10-segment fuel gauge, speedometer (km/h), checkpoint flash overlay, score float text, pickup notification badges
-- **Sound:** Web Audio API engine hum, coin ping, fuel glug, nitro roar, crash/skid sounds — lazy init on first gesture
+- **Road curves:** background parallax shifts opposite direction to road curve for immersive turn feel
+- **Player battle car:** armored body (red), roof turret, side armor plates, headlight glow, exhaust smoke trail; spins on crash
+- **Traffic:** compact cars (traffic + oncoming) with cabin/windshield/taillights; cop cars with flashing red/blue light bar + checkerboard stripes
+- **Particles:** crash sparks (10-particle burst), bullet explosion (16-particle burst), fuel collect particles, floating score text
+- **Screen FX:** speed lines at high speed, fuel warning red border pulse (< 15%), invincibility flashing
+- **HUD (React overlay):** lives (♥ hearts), score, fuel %, ammo count (∞ when maxed); checkpoint flash overlay
+- **HUD (in-canvas):** left mini-map strip, right fuel bar, bottom speed bar, spin count pips, low-fuel pulsing border
+- **Sound:** Web Audio API — engine hum (tracks speed), fuel pickup, crash — lazy init on first gesture
 
 ---
 
@@ -197,9 +206,22 @@ Select before each race — changes sky, road, curbs, lane dashes, background, a
 
 ---
 
+## Question API Cascade
+
+Questions are fetched in this priority order:
+
+1. **Vercel serverless** `/api/questions` — production and `vercel dev`
+2. **Browser direct Anthropic call** — local `npm run dev` only, requires `VITE_ANTHROPIC_API_KEY` in `.env`
+3. **Offline fallback** — `src/data/fallback-questions.json` (~200 questions); topic filter applied if a topic override is set
+
+To enable live questions in local dev, add to `.env`:
+```env
+VITE_ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ## Security
 
-- Claude API key **never in the browser** — proxied via Vercel serverless `/api/questions`
+- Claude API key **never in the browser** in production — proxied via Vercel serverless `/api/questions`
 - Coins **never set by the client** — validated and written server-side via `/api/coins` using Firebase Admin SDK + Firestore transactions
 - Firebase ID token required for all coin operations
 - Anti-cheat: coin cap per race, UID validation, rate limiting
@@ -265,15 +287,22 @@ When the Claude API is unavailable, the app automatically:
 
 ## Roadmap
 
-- [ ] Level-based AI difficulty (traffic density/speed ceiling by player level)
+### Phase 4 — Polish & Gameplay Depth
+- [ ] Touch / swipe controls for mobile (Capacitor)
+- [ ] More pickup types: ammo crate, shield, speed burst
+- [ ] Sound: more variety (bullet fire, explosion, cop siren)
+- [ ] PostRaceScreen: show distance driven, shots fired, accuracy
+- [ ] Leaderboard per topic / per track theme
 - [ ] Google Sign-In
-- [ ] Multiplayer — real-time race via Firebase Realtime Database (ghost overlays, shared leaderboard)
+
+### Phase 5 — Multiplayer
+- [ ] Real-time race via Firebase Realtime Database (ghost overlays, shared leaderboard)
 - [ ] Ghost mode — race your own personal best
-- [ ] Topic leaderboards
-- [ ] Push notifications for daily challenges (Capacitor)
-- [ ] Question rating system
-- [ ] Social share card ("I finished P1 in a Python race!")
+
+### Phase 6 — Mobile
 - [ ] Capacitor iOS/Android App Store release
+- [ ] Push notifications for daily challenges
+- [ ] Social share card ("I finished P1 in a Python race!")
 
 ---
 
