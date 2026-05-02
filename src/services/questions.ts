@@ -94,7 +94,7 @@ Return a JSON array only — no markdown, no explanation, just the array:
       'anthropic-dangerous-allow-browser': 'true',
     },
     body: JSON.stringify({
-      model: 'claude-haiku-4-5',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -114,16 +114,45 @@ Return a JSON array only — no markdown, no explanation, just the array:
   )
 }
 
+// Maps specific topic labels to broader fallback category keywords
+const TOPIC_CATEGORY_MAP: Record<string, string[]> = {
+  python:                  ['programming'],
+  java:                    ['programming'],
+  javascript:              ['programming'],
+  react:                   ['programming'],
+  typescript:              ['programming'],
+  docker:                  ['programming'],
+  sql:                     ['programming'],
+  'ai / machine learning': ['ai', 'programming'],
+  'formula 1':             ['sports'],
+  'food & cooking':        ['fun & silly'],
+  astronomy:               ['science'],
+  'movies & tv':           ['fun & silly', 'general knowledge'],
+  gaming:                  ['fun & silly'],
+}
+
 // ── Offline fallback ─────────────────────────────────────────────
 const getOfflineQuestions = (persona: Persona, excludeIds: string[], topicOverride?: string | null): Question[] => {
   const all = fallbackQuestions as Question[]
   let available = all.filter((q) => !excludeIds.includes(q.id))
   if (available.length < 10) available = all
 
-  // Topic override: filter strictly by keyword first
   if (topicOverride) {
-    const topic   = topicOverride.toLowerCase()
-    const matched = available.filter((q) => q.topic.toLowerCase().includes(topic))
+    const topic = topicOverride.toLowerCase()
+
+    // 1. Exact topic keyword match
+    let matched = available.filter((q) => q.topic.toLowerCase().includes(topic))
+
+    // 2. If not enough, try mapped categories
+    if (matched.length < 5) {
+      const cats = TOPIC_CATEGORY_MAP[topic] ?? []
+      if (cats.length > 0) {
+        matched = available.filter((q) =>
+          cats.some((cat) => q.topic.toLowerCase().includes(cat))
+        )
+      }
+    }
+
     if (matched.length >= 5) {
       const rest = available.filter((q) => !matched.includes(q))
       return [...shuffled(matched), ...shuffled(rest)].slice(0, 20)

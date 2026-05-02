@@ -15,7 +15,7 @@ if (!admin.apps.length) {
 
 // ── Claude client ─────────────────────────────────────────────
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const MODEL = process.env.CLAUDE_MODEL ?? 'claude-haiku-4-5'
+const MODEL = process.env.CLAUDE_MODEL ?? 'claude-haiku-4-5-20251001'
 
 // ── Types ─────────────────────────────────────────────────────
 interface Persona {

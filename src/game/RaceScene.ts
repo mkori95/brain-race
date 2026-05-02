@@ -165,6 +165,7 @@ class RaceScene extends Phaser.Scene {
 
   // ── Text objects ─────────────────────────────────────────────
   private bannerTxt!:   Phaser.GameObjects.Text
+  private controlsTxt!: Phaser.GameObjects.Text
   private finishTxt!:   Phaser.GameObjects.Text
   private markerTexts:  Phaser.GameObjects.Text[] = []
   private floatPool:    Phaser.GameObjects.Text[] = []
@@ -241,6 +242,11 @@ class RaceScene extends Phaser.Scene {
       color: '#ffffff', stroke: '#000000', strokeThickness: 5,
     }).setOrigin(0.5).setDepth(20)
 
+    this.controlsTxt = this.add.text(GAME_W / 2, CH * 0.56, '↑ / Z = Drive   X = Boost   ← → = Steer', {
+      fontSize: '11px', fontFamily: 'monospace',
+      color: '#aaaacc', stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(20).setAlpha(0.85)
+
     this.finishTxt = this.add.text(CW / 2, CH * 0.40, 'FINISH!', {
       fontSize: '52px', fontFamily: 'monospace', fontStyle: 'bold',
       color: '#ffd700', stroke: '#000000', strokeThickness: 6,
@@ -306,13 +312,16 @@ class RaceScene extends Phaser.Scene {
     // ── Input ────────────────────────────────────────────────
     const locked  = this.time.now < this.lockUntil
     const highG   = !locked && this.highKey.isDown
-    const lowG    = !locked && !highG && this.lowKey.isDown
+    const lowG    = !locked && !highG && (this.lowKey.isDown || this.keys.up.isDown)
     const brake   = !locked && this.keys.down.isDown
     const left    = !locked && this.keys.left.isDown
     const right   = !locked && this.keys.right.isDown
     const shoot   = !locked && Phaser.Input.Keyboard.JustDown(this.spaceKey)
 
-    // ── Two-gear speed ────────────────────────────────────────
+    // Hide controls hint once player starts moving
+    if (this.ps > 30 && this.controlsTxt.visible) this.controlsTxt.setVisible(false)
+
+    // ── Two-gear speed (Z or ↑ = low gear, X = high gear) ────────
     if (highG) {
       this.ps = Math.min(this.ps + HIGH_GEAR_ACCEL * dt, HIGH_GEAR_TOP)
     } else if (lowG) {
@@ -345,23 +354,26 @@ class RaceScene extends Phaser.Scene {
     this.fuel       -= (FUEL_BASE + this.ps * FUEL_SPD) * gearMult * dt
     this.fuel        = Math.max(0, this.fuel)
 
-    // ── Road curve (distance-based sections, only advances when moving) ──
-    if (this.ps > 5 && this.pd >= this.nextCurveAt) {
-      if (this.curveDir === 0) {
-        // Straight → pick a curve direction
-        this.curveDir   = Math.random() < 0.5 ? -1 : 1
-        this.curveTo    = this.curveDir * CURVE_MAX
-        this.nextCurveAt = this.pd + CURVE_DIST_MIN + Math.random() * (CURVE_DIST_MAX - CURVE_DIST_MIN)
-      } else {
-        // Curve → go straight
-        this.curveDir   = 0
-        this.curveTo    = 0
-        this.nextCurveAt = this.pd + STRAIGHT_DIST_MIN + Math.random() * (STRAIGHT_DIST_MAX - STRAIGHT_DIST_MIN)
+    // ── Road curve (distance-based sections) ──────────────────────
+    if (this.ps > 5) {
+      // Advance curve section only while moving
+      if (this.pd >= this.nextCurveAt) {
+        if (this.curveDir === 0) {
+          this.curveDir    = Math.random() < 0.5 ? -1 : 1
+          this.curveTo     = this.curveDir * CURVE_MAX
+          this.nextCurveAt = this.pd + CURVE_DIST_MIN + Math.random() * (CURVE_DIST_MAX - CURVE_DIST_MIN)
+        } else {
+          this.curveDir    = 0
+          this.curveTo     = 0
+          this.nextCurveAt = this.pd + STRAIGHT_DIST_MIN + Math.random() * (STRAIGHT_DIST_MAX - STRAIGHT_DIST_MIN)
+        }
       }
+      this.curve += (this.curveTo - this.curve) * Math.min(1, dt * 2.2)
+      if (this.ps > 10) this.px += this.curve * this.scrollSpd * dt * 0.25
+    } else {
+      // When stopped, road gradually straightens so the screen doesn't tilt
+      this.curve += (0 - this.curve) * Math.min(1, dt * 2.0)
     }
-    this.curve += (this.curveTo - this.curve) * Math.min(1, dt * 2.2)
-    // Drift player laterally with road curve (only when moving)
-    if (this.ps > 10) this.px += this.curve * this.scrollSpd * dt * 0.25
     this.px = Math.max(this.RL + PL_W * 0.6, Math.min(this.RR - PL_W * 0.6, this.px))
 
     // Crash spin animation
