@@ -72,9 +72,9 @@ const MARKER_LABELS = ['START', 'CHECKPOINT', 'CHECKPOINT', 'CHECKPOINT', 'FINIS
 
 // ─── Spawn intervals (per difficulty) ────────────────────────────
 const SPAWNS = {
-  easy:   { traffic: 2.6, incoming: 5.5, cop: 11.0, fuel: 14.0 },
-  medium: { traffic: 1.9, incoming: 3.8, cop:  7.5, fuel: 12.0 },
-  hard:   { traffic: 1.3, incoming: 2.6, cop:  5.5, fuel: 11.0 },
+  easy:   { traffic: 5.5, incoming: 9.0, cop: 20.0, fuel: 22.0 },
+  medium: { traffic: 3.8, incoming: 6.0, cop: 13.0, fuel: 17.0 },
+  hard:   { traffic: 2.6, incoming: 4.0, cop:  9.0, fuel: 14.0 },
 }
 
 // ─── Traffic type colors ──────────────────────────────────────────
@@ -83,7 +83,7 @@ const RED_COLOR       = 0xcc2222
 const BLUE_COLOR      = 0x2255cc
 const TRUCK_COLOR     = 0x556633
 const FUEL_CAR_COLORS = [0xff4400, 0x00bbff, 0xff00bb, 0x44ff00, 0xff8800]
-const INCOMING_COLORS = [0xffcc22, 0xddaa00]
+// oncoming cars are always green — visually distinct from same-direction traffic
 
 // ─── Theme sky/shoulder colors ────────────────────────────────────
 const THEMES: Record<string, { sky: number; shoulder: number; terrain: number; terrainAlt: number; headlights: boolean }> = {
@@ -471,11 +471,19 @@ class RaceScene extends Phaser.Scene {
   }
 
   private spawnEntities(dt: number) {
+    // Always count down timers so intervals don't pile up when stopped
     const si = SPAWNS[this.difficulty]
-    const sp = Math.max(this.scrollSpd, 60)  // minimum spawn speed for VY
+    this.tTraffic -= dt
+    this.tIncoming -= dt
+    this.tCop      -= dt
+    this.tFuel     -= dt
+
+    // Don't spawn any traffic until player is moving
+    if (this.ps < 50) return
+
+    const sp = this.scrollSpd  // use actual player speed — no artificial floor
 
     // Forward traffic → right 2 lanes (L2, L3)
-    this.tTraffic -= dt
     if (this.tTraffic <= 0) {
       const li  = Math.random() < 0.5 ? 2 : 3
       const r   = Math.random()
@@ -490,30 +498,27 @@ class RaceScene extends Phaser.Scene {
         type = 'truck'; color = TRUCK_COLOR; vy = sp * 0.28
       }
       this.cars.push(this.spawnCar(li, type, color, vy))
-      this.tTraffic = si.traffic * (0.75 + Math.random() * 0.5)
+      this.tTraffic = si.traffic * (0.8 + Math.random() * 0.4)
     }
 
-    // Oncoming → left 2 lanes (L0, L1)
-    this.tIncoming -= dt
+    // Oncoming → left 2 lanes (L0, L1) — green cars coming head-on
     if (this.tIncoming <= 0) {
-      const li  = Math.random() < 0.5 ? 0 : 1
-      const col = INCOMING_COLORS[Math.floor(Math.random() * INCOMING_COLORS.length)]
-      this.cars.push(this.spawnCar(li, 'incoming', col, sp * 1.8 + 100))
-      this.tIncoming = si.incoming * (0.65 + Math.random() * 0.7)
+      const li = Math.random() < 0.5 ? 0 : 1
+      // oncoming VY = player speed (scroll) + their own approach speed
+      this.cars.push(this.spawnCar(li, 'incoming', 0x22bb44, sp + 160))
+      this.tIncoming = si.incoming * (0.7 + Math.random() * 0.6)
     }
 
     // Cop → right 2 lanes
-    this.tCop -= dt
     if (this.tCop <= 0) {
       const li = Math.random() < 0.5 ? 2 : 3
       this.cars.push(this.spawnCar(li, 'cop', 0x111166, sp * 0.50))
-      this.tCop = si.cop * (0.85 + Math.random() * 0.3)
+      this.tCop = si.cop * (0.8 + Math.random() * 0.4)
     }
 
-    // Fuel car → any lane (moving pickup, collect to refuel)
-    this.tFuel -= dt
+    // Fuel car → right 2 lanes only (same-direction pickup)
     if (this.tFuel <= 0) {
-      const li  = Math.floor(Math.random() * 4)
+      const li  = Math.random() < 0.5 ? 2 : 3
       const col = FUEL_CAR_COLORS[Math.floor(Math.random() * FUEL_CAR_COLORS.length)]
       this.cars.push(this.spawnCar(li, 'fuel_car', col, sp * 0.48))
       this.tFuel = si.fuel * (0.8 + Math.random() * 0.4)
@@ -887,15 +892,25 @@ class RaceScene extends Phaser.Scene {
     }
   }
 
-  // ─── Generic car ──────────────────────────────────────────────
-  private drawCar(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, color: number, dark: number) {
+  // ─── Generic car — flipped=true for oncoming (faces down) ────────
+  private drawCar(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, color: number, dark: number, flipped = false) {
     const hw = w / 2, hh = h / 2
-    g.fillStyle(0x000000, 0.28); g.fillEllipse(x + 1, y + hh - 2, w + 4, 7)
+    // Shadow under rear
+    const shadowY = flipped ? y - hh + 2 : y + hh - 2
+    g.fillStyle(0x000000, 0.28); g.fillEllipse(x + 1, shadowY, w + 4, 7)
     g.fillStyle(dark);  g.fillRoundedRect(x - hw, y - hh, w, h, 2)
-    g.fillStyle(color); g.fillRoundedRect(x - hw + 1, y - hh + 1, w - 2, h * 0.65, 2)
-    g.fillStyle(0x88ccff, 0.5); g.fillRect(x - hw + 2, y - hh + 2, w - 4, h * 0.24)
-    g.fillStyle(0xff2200); g.fillRect(x - hw + 1, y - hh + 1, 3, 2); g.fillRect(x + hw - 4, y - hh + 1, 3, 2)
-    g.fillStyle(0xffee88); g.fillRect(x - hw + 1, y + hh - 4, 4, 3); g.fillRect(x + hw - 5, y + hh - 4, 4, 3)
+    // Body (covers top 65% or bottom 65% depending on facing)
+    const bodyY = flipped ? y + hh - 1 - h * 0.65 : y - hh + 1
+    g.fillStyle(color); g.fillRoundedRect(x - hw + 1, bodyY, w - 2, h * 0.65, 2)
+    // Windshield at front
+    const windY = flipped ? y + hh - 2 - h * 0.24 : y - hh + 2
+    g.fillStyle(0x88ccff, 0.5); g.fillRect(x - hw + 2, windY, w - 4, h * 0.24)
+    // Headlights at front (bright yellow-white)
+    const headY = flipped ? y + hh - 4 : y - hh + 1
+    g.fillStyle(0xffee88); g.fillRect(x - hw + 1, headY, 4, 3); g.fillRect(x + hw - 5, headY, 4, 3)
+    // Taillights at rear (red)
+    const tailY = flipped ? y - hh + 1 : y + hh - 4
+    g.fillStyle(0xff2200); g.fillRect(x - hw + 1, tailY, 3, 2); g.fillRect(x + hw - 4, tailY, 3, 2)
   }
 
   // ─── Player battle car ────────────────────────────────────────
@@ -970,9 +985,11 @@ class RaceScene extends Phaser.Scene {
         g.fillStyle(0xffffff, 0.9)
         g.fillRect(c.x - 1, c.y - 5, 2, 10); g.fillRect(c.x - 5, c.y - 1, 10, 2)
       } else if (c.type === 'incoming') {
-        this.drawCar(g, c.x, c.y, CAR_W, CAR_H, c.color, c.dark)
-        if (c.y > CH * 0.52) {
-          g.lineStyle(2, 0xff0000, 0.4); g.strokeRect(c.x - CAR_W / 2 - 2, c.y - CAR_H / 2 - 2, CAR_W + 4, CAR_H + 4)
+        // Flipped = faces DOWN (toward player), green, headlights at bottom
+        this.drawCar(g, c.x, c.y, CAR_W, CAR_H, c.color, c.dark, true)
+        // Warning highlight when close
+        if (c.y > CH * 0.45) {
+          g.lineStyle(2, 0xff0000, 0.5); g.strokeRect(c.x - CAR_W / 2 - 2, c.y - CAR_H / 2 - 2, CAR_W + 4, CAR_H + 4)
         }
       } else {
         // yellow / red / blue — standard car
