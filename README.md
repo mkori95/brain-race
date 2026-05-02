@@ -18,7 +18,7 @@ Questions are **fully personalized** to each player's age, interests, and profes
 | Database | Firebase Firestore (JS SDK) |
 | Hosting | Vercel (free tier) |
 | API Proxy | Vercel Serverless Functions |
-| AI Questions | Claude API (`claude-haiku-4-5` default) |
+| AI Questions | Claude API (`claude-haiku-4-5-20251001` default) |
 | State | Zustand |
 | Sound | Web Audio API (procedural, no audio files) |
 | Mobile (future) | Capacitor (wraps build, no code changes needed) |
@@ -122,7 +122,10 @@ cp .env.example .env
 ```env
 # Claude API (Vercel only — never in browser)
 ANTHROPIC_API_KEY=sk-ant-...
-CLAUDE_MODEL=claude-haiku-4-5
+CLAUDE_MODEL=claude-haiku-4-5-20251001
+
+# Optional: browser-side key for local dev (enables live topic questions without vercel dev)
+VITE_ANTHROPIC_API_KEY=sk-ant-...   # leave blank to use offline fallback only
 
 # Firebase client (safe for browser — VITE_ prefix exposes to frontend)
 VITE_FIREBASE_API_KEY=...
@@ -158,19 +161,21 @@ npm run dev
 - Confetti on P1, answer breakdown on results screen
 
 ### Road Fighter Race (current implementation)
-- **4-lane top-down scroller**, Phaser 3 WebGL, pure single-player
-- **4-lane road:** left 2 lanes = oncoming traffic; right 2 lanes = forward traffic + player; double yellow center divider; gray asphalt with white dashed lane lines
+- **4-lane top-down scroller**, Phaser 3 WebGL, pure single-player (`fps.forceSetTimeOut: true` keeps loop alive in background tabs)
+- **4-lane road** (`ROAD_W=180`, `LANE_W=45`): left 2 lanes = oncoming; right 2 lanes = forward + player; double yellow center divider; animated red/white curbs; scanline perspective effect
+- **Road curves:** distance-based discrete sections — straight 1200–2800 units, then left or right for 700–1600 units. Road holds perfectly straight when player is stationary.
 - **Road markers:** START / CHECKPOINT / FINISH painted as colored ovals on road surface, scrolling with the road
-- **Road curves:** road center oscillates via `sin(t × 0.28) × 55` — all road elements shift with it; background parallax shifts opposite direction
-- **Manual acceleration:** UP = accelerate, release = coast, DOWN = brake; LEFT/RIGHT = continuous drag at 220 px/s
-- **Shooting:** SPACE fires bullets upward; 10,000 starting ammo (shows ∞); bullets hit all car types except cops; +150 pts for oncoming, +80 pts for traffic; explosion particles on kill
-- **Cop cars:** ram for points (no life loss); cop has flashing light bar
-- **Lives / spin system:** 3 spins per life → respawn; 3 respawns (failures) → game over; spin count shown as pips in left HUD strip; invincibility frames after each crash
-- **Fuel:** drains continuously based on speed; race ends at fuel=0 or finish line; no countdown timer
-- **Checkpoints** at 5000/10000/15000 distance: +25% fuel each
-- **Finish line** at 20000 distance
-- **Difficulty:** auto-scaled from player XP level (easy/medium/hard → traffic density + spawn rates)
-- **Mini-map:** left strip shows player position, checkpoint marks
+- **Two-gear controls:** `↑ / Z` = low gear (~200 km/h constant), `X` = high gear (~400 km/h, 2.2× fuel burn); release = coast; `↓` = brake; `← →` = lateral steer at 220 px/s. Controls hint shown on screen at start.
+- **Typed traffic:** Yellow (normal), Red (lane-blocks player), Blue (aggressive lane changes), Truck (instant life loss, double fuel penalty), Fuel Car (collect for +30% fuel). Oncoming cars are always green and face toward player.
+- **Traffic only spawns when moving** — road is empty at standstill; no artificial speed floor
+- **Shooting:** SPACE fires bullets; 10,000 starting ammo (shows ∞); hits yellow/red/blue/truck/incoming; +150 pts for oncoming, +80 pts for traffic; +5 ammo on kill
+- **Cop cars:** ram for bonus points (no life loss); has flashing light bar
+- **Lives / spin system:** 3 spins per life → respawn; 3 respawns (failures) → game over; invincibility frames after each crash; trucks skip spin system (direct life loss)
+- **Fuel:** drains continuously × gear multiplier; fuel cars give +30% on collection; race ends at fuel=0 or finish line; no countdown timer
+- **Checkpoints** at 5000/10000/15000 distance: +25% fuel each; finish line at 20000
+- **Right HUD panel** (130px): RANK/TIME/CARS boxes, RPM gradient bar (blue→cyan), FUEL gradient bar (brown→orange), low-fuel red flash, speed in km/h, distance in km, ♥ lives
+- **Scenery:** railroad crossties + rails (left), crowd spectators, tree clusters both sides, night lamp posts; green grass shoulders
+- **Difficulty:** auto-scaled from player XP level (easy/medium/hard → spawn intervals)
 
 ### Track Themes
 Select before each race — changes sky, road, curbs, lane dashes, background, and roadside scenery:
@@ -245,7 +250,7 @@ Change `CLAUDE_MODEL` — no code changes needed:
 
 | Model | Best for |
 |---|---|
-| `claude-haiku-4-5` | Default — fastest, cheapest (~$0.001/race) |
+| `claude-haiku-4-5-20251001` | Default — fastest, cheapest (~$0.001/race) |
 | `claude-sonnet-4-6` | Higher quality questions |
 | `claude-opus-4-7` | Best quality, slower |
 

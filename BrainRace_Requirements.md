@@ -1,5 +1,5 @@
 # BrainRace — Game Requirements Document
-**Last updated: 2026-04-30**
+**Last updated: 2026-05-02**
 
 ---
 
@@ -47,7 +47,7 @@ Post-Race: Score, XP, Coins, Personal Bests
 | Realtime (Phase 2) | Firebase Realtime Database | Multiplayer race sync |
 | Hosting | Vercel | Free tier, serverless functions |
 | Claude API Proxy | Vercel Serverless `/api/questions` | API key never in browser |
-| Claude Model | `claude-haiku-4-5` default | Swap via `CLAUDE_MODEL` env var |
+| Claude Model | `claude-haiku-4-5-20251001` default | Swap via `CLAUDE_MODEL` env var |
 | State | Zustand | `src/store/useGameStore.ts` |
 | Mobile (future) | Capacitor | Wraps Vite build for iOS/Android |
 
@@ -80,8 +80,8 @@ Post-Race: Score, XP, Coins, Personal Bests
 - `raceBridge` pattern for Phaser ↔ React state sharing
 - QualiScreen, RaceScreen (HUD), PostRaceScreen all built
 
-### ✅ Phase 3 — Road Fighter Redesign + Visual Overhaul (complete as of 2026-04-30)
-Full redesign — see detail section below.
+### ✅ Phase 3 — Road Fighter Redesign + Visual Overhaul + Mechanics (complete as of 2026-05-02)
+Full redesign — see detail section below. Latest commits also fixed: road-static-when-stopped, two-gear driving (Z/↑ + X), typed traffic AI, topic question offline expansion.
 
 ### 📋 Phase 4 — Polish & Gameplay Depth (planned)
 ### 📋 Phase 5 — Multiplayer (planned)
@@ -89,35 +89,40 @@ See below.
 
 ---
 
-## Phase 3 — Road Fighter Redesign + Visual Overhaul (✅ Complete as of 2026-04-30)
+## Phase 3 — Road Fighter Redesign + Visual Overhaul + Mechanics (✅ Complete as of 2026-05-02)
 
 ### Goal
-Full redesign of the race scene to match Road Fighter arcade feel: 4-lane road with center divider, battle car player, shooting mechanics, spin/failure life system, road surface labels, and smooth curve illusion.
+Full redesign of the race scene to match Road Fighter arcade feel: 4-lane road with center divider, battle car player, two-gear driving system, typed traffic AI, shooting mechanics, spin/failure life system, road surface labels, and curve illusion.
 
 ---
 
 ### 3A — Road & Environment ✅
-- **4-lane gray asphalt road** (`ROAD_W=280`, `LANE_W=70`): left 2 lanes = oncoming traffic; right 2 lanes = forward traffic + player
+- **4-lane gray asphalt road** (`ROAD_W=180`, `LANE_W=45`): left 2 lanes = oncoming traffic; right 2 lanes = forward traffic + player
 - **Center divider:** solid double yellow line separating oncoming from forward lanes
-- **Lane markings:** dashed white lines within each side
-- **Red/white animated curb stripes** on both edges
-- **Road curve illusion:** `roadCX` oscillates via `sin(t × 0.28) × 55`; all road elements (asphalt, bands, lane lines, curbs, spawn points) shift with it each frame. Background scenery shifts in opposite direction.
-- **Track themes** (3, player-selectable): Night City / Desert Highway / Mountain Pass — drive sky, shoulder, and background scenery
-- **Road markers painted on surface:** START (blue oval, pd=0), CHECKPOINT (green oval, pd=5000/10000/15000), FINISH (gold oval, pd=20000) — each a colored stripe + oval + label text, scrolling with `screenY = PLAYER_Y - (dist - pd)`
+- **Lane markings:** dashed white lines within each side; red/white animated curb stripes on both edges
+- **Road curve illusion (discrete sections):** distance-based sections — straight for 1200–2800 distance units, then a left or right curve for 700–1600 units; `curve` value interpolates between sections. Road holds perfectly straight when player is stationary (`ps <= 5` → curve lerps to 0).
+- **Scanline perspective:** each 4px horizontal strip shifts road center based on `curve × (PLAYER_Y - sy)` giving Road Fighter depth illusion
+- **Track themes** (3, player-selectable): Night City / Desert Highway / Mountain Pass — changes sky, shoulder, and background scenery
+- **Road markers painted on surface:** START (blue oval, pd=0), CHECKPOINT (green oval, pd=5000/10000/15000), FINISH (gold oval, pd=20000) — colored stripe + oval + label text, scrolling with `screenY = PLAYER_Y - (dist - pd)`
+- **Scenery:** railroad crossties + rails + crowd spectators on left shoulder; tree clusters + night lamp posts on right shoulder; scrolling parallax at different speeds
+- **Right HUD panel (130px):** RANK/TIME/CARS boxes (blue headers, gold border), RPM gradient bar (blue→cyan), FUEL gradient bar (brown→orange), low-fuel red flash, speed in km/h, distance in km, ♥ lives
+- **Gold progress bar** at top showing segment progress (last checkpoint → next)
 
 ### 3B — Player Battle Car ✅
-- **Armored body** (battle red `#cc1111`), side armor plates, roof-mounted turret barrel
-- **Exhaust smoke** at high speed
+- **Armored body** (battle red `#cc1111`), side armor plates, roof turret, exhaust smoke at high speed
 - **Spin animation** on crash: `spinAngle` accumulates, damped over time
 - **Invincibility flashing** after crash (alternates visible/invisible every 110ms)
-- **Continuous lateral drag** at `LATERAL_SPD=220 px/s` (hold LEFT/RIGHT)
-- **Manual speed:** UP = accelerate, release = coast, DOWN = brake
+- **Continuous lateral drag** at `LATERAL_SPD=220 px/s` (hold `← →`)
+- **Two-gear system:** `↑ / Z` = low gear (maintains ~200 km/h, `LOW_GEAR_TOP=420`); `X` = high gear (accelerates to ~400 km/h, `HIGH_GEAR_TOP=850`, `2.2×` fuel burn); release = coast; `↓` = brake
+- **Controls hint** shown at race start, hides when player starts moving
 
 ### 3C — Cars & Traffic ✅
-- **Oncoming cars** (lanes L0/L1, left half): spawn at top, move DOWN at `scrollSpd × 1.8 + 100`; yellow color; red warning outline when near player
-- **Traffic cars** (lanes L2/L3, right half): spawn at top, move DOWN at `scrollSpd × 0.40`; 5 earth-tone colors
-- **Cop cars** (right half): dark blue with flashing red/blue light bar + checkerboard stripes; RAM = bonus points, no life loss
-- **All sizes:** `CAR_W=14, CAR_H=24`; player `PL_W=16, PL_H=28`
+- **Typed traffic** (lanes L2/L3, right half): Yellow = straight, Red = blocks player lane, Blue = aggressive random lane changes, Truck = instant life loss + 20% fuel penalty; all face away from player
+- **Oncoming cars** (lanes L0/L1, left half): always green (`0x22bb44`), face TOWARD player (flipped drawCar), move DOWN at `scrollSpd + 160`; red warning outline when near player
+- **Cop cars** (right half): dark blue with flashing red/blue light bar; RAM = bonus points, no life loss
+- **Fuel cars** (lanes L2/L3 only): moving pickup, colliding gives +30% fuel; glowing with pulsing halo
+- **Traffic only spawns when `ps >= 50`** — road is empty at standstill
+- **All sizes:** `CAR_W=14, CAR_H=24`; player `PL_W=16, PL_H=28`; trucks `CAR_W×1.6, CAR_H×1.5`
 - **AI racers removed entirely** — pure single-player
 
 ### 3D — Shooting System ✅
@@ -287,42 +292,48 @@ onCheckpoint: (() => void) | null
 ```
 
 ### Traffic System
-| Type | Direction | Relative Speed | Width | Color |
+| Type | Direction | Relative Speed | Width | Special |
 |---|---|---|---|---|
-| `slow` | Same as player | 45% of road speed | 1 lane | Earth tones |
-| `oncoming` | Head-on | 160% of road speed | 1 lane | Bright yellow |
-| `truck` | Same as player | 35% of road speed | 2 lanes | Dark grey |
+| `yellow` | Same as player | 42% of scroll speed | 1 lane | Drives straight |
+| `red` | Same as player | 45% of scroll speed | 1 lane | Moves to block player lane |
+| `blue` | Same as player | 38% of scroll speed | 1 lane | Aggressive random lane changes |
+| `truck` | Same as player | 28% of scroll speed | 1.6× wide | Instant life loss on hit |
+| `fuel_car` | Same as player | 48% of scroll speed | 1 lane | Collect for +30% fuel |
+| `incoming` | Head-on | scrollSpd + 160 | 1 lane | Always green, faces toward player |
+| `cop` | Same as player | 50% of scroll speed | 1 lane | Ram for bonus pts, can't be shot |
 
-Spawn interval shrinks from 2000ms → 900ms as game speed increases.
+Spawn intervals (per difficulty): easy 5.5s traffic / 9.0s incoming; hard 2.6s traffic / 4.0s incoming.
+No traffic spawns until `ps >= 50` (Road Fighter: empty road at standstill).
 
 ### Pickup System
-| Type | Effect | Rarity |
-|---|---|---|
-| `coin` | +50 score | Common |
-| `fuel` | +28% fuel bar | Common |
-| `nitro` | 3s speed boost | Uncommon |
-| `oil` | Spin crash (same as soft crash) | Uncommon |
+| Type | Effect |
+|---|---|
+| `fuel_car` | +30% fuel on collision |
+| Checkpoints (5000/10000/15000) | +25% fuel |
 
-### Speed Ramp
+### Speed / Gear System
 ```
-BASE_SPEED = 200 px/s
-MAX_SPEED  = 520 px/s
-Every 30s: +25 px/s
+Low gear (Z / ↑):  constant ~200 km/h  (ps ~420)
+High gear (X):     accelerates to ~400 km/h  (ps ~850, 2.2× fuel burn)
+Coast (no key):    decelerates at 80 px/s²
+Brake (↓):         decelerates at 280 px/s²
+Lateral (← →):     220 px/s continuous
 ```
 
 ### Crash Severity
-| Severity | Trigger | Spin Duration | Speed Penalty |
-|---|---|---|---|
-| Soft | Glancing hit, oil slick | 500ms | 60% of CRASH_PENALTY |
-| Hard | Direct collision with traffic | 1000ms | Full CRASH_PENALTY (180) |
+| Trigger | Effect |
+|---|---|
+| Hit yellow / red / blue / incoming | spinCount++; 3 spins → respawn; -10% fuel |
+| Hit truck | Instant life loss (skip spin); -20% fuel |
+| Ram cop | Bonus points, no life loss |
 
-After spin: 500ms invincibility frames (car flashes).
+After spin: 2500ms invincibility frames (car flashes 110ms on/off); 3500ms after respawn.
 
 ### Fuel Drain
-- Drains at a rate tuned so ~80s of full-throttle driving depletes tank
-- Nitro boost drains fuel 2× faster during 3s boost
+- Time-based: `(FUEL_BASE + ps × FUEL_SPD) × gearMultiplier × dt`
+- Low gear: 1.0× multiplier; high gear: 2.2×; coasting: 0.6×
+- Crash penalty: -10% per spin hit; -20% for truck hit
 - Grid position P5 starts at 80% fuel (added race pressure)
-- Fuel pickup: +28% instant refill
 
 ### Level-Based Difficulty (bridge.playerLevel — TODO in Phase 3)
 | Level | Traffic Density | Speed Ceiling |
@@ -520,7 +531,11 @@ Used when: no network or API unavailable. "Offline Mode" badge shown in race UI.
 ```bash
 # Claude API (Vercel only — never in browser)
 ANTHROPIC_API_KEY=your_key
-CLAUDE_MODEL=claude-haiku-4-5
+CLAUDE_MODEL=claude-haiku-4-5-20251001
+
+# Optional browser-side key (local dev only — enables live topic questions with npm run dev)
+# Without this, offline fallback questions are used (topic coverage is limited)
+VITE_ANTHROPIC_API_KEY=your_key
 
 # Firebase Client (safe for browser — VITE_ prefix)
 VITE_FIREBASE_API_KEY=...
