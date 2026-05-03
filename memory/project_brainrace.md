@@ -122,6 +122,7 @@ onFuelCollected, onCrash, onCheckpoint
 ### ✅ TypeScript: `tsc --noEmit` passes clean
 
 ### Latest commits on main:
+- `4a38c8a` — fix: randomize correct answer position — no longer always option A
 - `42d8da8` — fix: enforce 100% topic-specific questions in both API and browser prompts
 - `838b821` — fix: strip Origin/Referer headers in Anthropic proxy
 - `82017f8` — fix: use VITE_ANTHROPIC_API_KEY in dev proxy
