@@ -106,10 +106,11 @@ onFuelCollected, onCrash, onCheckpoint
 - Sign-up race condition fixed: `_signUpInProgress` flag prevents `onAuthStateChanged` from calling `setUser(null)` before `createUserProfile` finishes
 - Sign-in recovery: if Firestore profile missing, auto-creates a minimal profile so user can log in
 
-### ✅ Topic questions (2026-05-02):
-- Questions cascade: Vercel API → browser direct Anthropic call → offline fallback
-- `VITE_ANTHROPIC_API_KEY` in `.env` enables direct Claude calls in local dev for topic-specific questions
-- `TOPIC_CATEGORY_MAP` for offline fallback category expansion
+### ✅ Topic questions — fully working (2026-05-02):
+- Questions cascade: Vercel `/api/questions` → Vite dev proxy → offline fallback
+- **Vite dev proxy** (`/anthropic-proxy/*` → `https://api.anthropic.com`): strips `Origin` and `Referer` headers before forwarding so Anthropic treats it as a server-to-server call (not a CORS browser request). API key injected via `VITE_ANTHROPIC_API_KEY` from `.env`
+- **100% topic-specific prompt**: both `api/questions.ts` and `src/services/questions.ts` use a strict prompt that enforces ALL 20 questions to be about the selected topic; topic field hardcoded to match override
+- `TOPIC_CATEGORY_MAP` in `src/services/questions.ts` for offline fallback topic expansion
 
 ### ✅ Road Fighter visual overhaul:
 - Layout: GAME_W=350 + PANEL_W=130 right HUD panel
@@ -119,6 +120,13 @@ onFuelCollected, onCrash, onCheckpoint
 - Per-scanline road curve, headlights (night-only with glow beams)
 
 ### ✅ TypeScript: `tsc --noEmit` passes clean
+
+### Latest commits on main:
+- `42d8da8` — fix: enforce 100% topic-specific questions in both API and browser prompts
+- `838b821` — fix: strip Origin/Referer headers in Anthropic proxy
+- `82017f8` — fix: use VITE_ANTHROPIC_API_KEY in dev proxy
+- `2ce8d72` — fix: route Anthropic calls through Vite dev proxy to bypass CORS
+- `c31ecd8` — fix: sign-up race condition + sign-in profile recovery
 
 ---
 
