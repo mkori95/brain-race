@@ -27,6 +27,9 @@ export default defineConfig(({ mode }) => {
               const key = env.VITE_ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY || ''
               proxyReq.setHeader('x-api-key', key)
               proxyReq.setHeader('anthropic-version', '2023-06-01')
+              // Strip Origin so Anthropic treats this as server-to-server (not a CORS browser request)
+              proxyReq.removeHeader('origin')
+              proxyReq.removeHeader('referer')
             })
           },
         },
