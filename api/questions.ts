@@ -70,11 +70,12 @@ Rules:
 - No two questions about the exact same fact
 - Question text: max 12 words. Each answer option: max 6 words
 - Each question must have exactly 4 options
-- The correct answer must be one of the 4 options
+- Randomize which position holds the correct answer — do NOT always put it first
+- The "correct" field must be the full text of the correct option (not a letter like A/B/C/D)
 - Excluded question IDs (do not reuse): ${excludeIds.slice(0, 20).join(', ') || 'none'}
 
 Return a JSON array only — no markdown, no explanation, just the array:
-[{"id":"q_<8chars>","topic":"${raceTopicOverride}","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
+[{"id":"q_<8chars>","topic":"${raceTopicOverride}","question":"Question?","options":["Wrong answer","Also wrong","Correct answer here","Another wrong"],"correct":"Correct answer here","explanation":"Brief explanation."}]`
     : `You are a trivia question curator for a racing game called BrainRace.
 
 Player Profile:
@@ -94,11 +95,12 @@ Rules:
 - No two questions should be about the exact same fact
 - Question text: max 12 words. Each answer option: max 6 words
 - Each question must have exactly 4 options
-- The correct answer must be one of the 4 options (not always the first)
+- Randomize which position holds the correct answer — do NOT always put it first
+- The "correct" field must be the full text of the correct option (not a letter like A/B/C/D)
 - Excluded question IDs (do not reuse): ${excludeIds.slice(0, 20).join(', ') || 'none'}
 
 Return a JSON array only — no markdown, no explanation, just the array:
-[{"id":"q_<8chars>","topic":"topic name","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
+[{"id":"q_<8chars>","topic":"topic name","question":"Question?","options":["Wrong answer","Correct answer here","Also wrong","Another wrong"],"correct":"Correct answer here","explanation":"Brief explanation."}]`
 
   try {
     const message = await anthropic.messages.create({
