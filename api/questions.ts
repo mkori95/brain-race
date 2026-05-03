@@ -56,11 +56,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!persona) return res.status(400).json({ error: 'Missing persona' })
 
-  const topicLine = raceTopicOverride
-    ? `This race topic focus: ${raceTopicOverride} (make 80% of questions about this topic)`
-    : ''
+  const prompt = raceTopicOverride
+    ? `You are a trivia question curator for a racing game called BrainRace.
 
-  const prompt = `You are a trivia question curator for a mobile racing game called BrainRace.
+Generate exactly 20 trivia questions. ALL 20 questions must be about "${raceTopicOverride}" — no exceptions, no other topics.
+
+Rules:
+- Every single question must be specifically about ${raceTopicOverride}
+- The "topic" field in every question must be exactly "${raceTopicOverride}"
+- Match difficulty to: ${persona.difficultyPreference}
+- Match language complexity to age group: ${persona.ageGroup}
+- All answers must be factually correct
+- No two questions about the exact same fact
+- Question text: max 12 words. Each answer option: max 6 words
+- Each question must have exactly 4 options
+- The correct answer must be one of the 4 options
+- Excluded question IDs (do not reuse): ${excludeIds.slice(0, 20).join(', ') || 'none'}
+
+Return a JSON array only — no markdown, no explanation, just the array:
+[{"id":"q_<8chars>","topic":"${raceTopicOverride}","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
+    : `You are a trivia question curator for a racing game called BrainRace.
 
 Player Profile:
 - Name: ${persona.name}
@@ -69,33 +84,21 @@ Player Profile:
 - Interests: ${persona.interests.join(', ') || 'general knowledge'}
 - Personality: ${persona.personality.join(', ') || 'curious'}
 - Difficulty Preference: ${persona.difficultyPreference}
-${topicLine}
 
 Generate exactly 20 trivia questions personalized for this player.
 
 Rules:
-- ${raceTopicOverride ? `80% of questions must be about "${raceTopicOverride}", 20% from adjacent topics` : '60% from their interest topics, 20% adjacent topics, 10% fun/silly wildcard, 10% general knowledge'}
+- 60% from their interest topics, 20% adjacent topics, 10% fun/silly wildcard, 10% general knowledge
 - Match language complexity to their age group (kid = very simple, teen = moderate, adult/senior = normal)
 - All answers must be factually correct and verifiable
 - No two questions should be about the exact same fact
-- Question text: max 12 words
-- Each answer option: max 6 words
+- Question text: max 12 words. Each answer option: max 6 words
 - Each question must have exactly 4 options
 - The correct answer must be one of the 4 options (not always the first)
-- Include a variety of topics within the constraints
 - Excluded question IDs (do not reuse): ${excludeIds.slice(0, 20).join(', ') || 'none'}
 
 Return a JSON array only — no markdown, no explanation, just the array:
-[
-  {
-    "id": "q_<8-char-random-alphanumeric>",
-    "topic": "topic name (e.g. Python, History, Fun & Silly)",
-    "question": "Question text here?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correct": "Option A",
-    "explanation": "One sentence explaining why this answer is correct, written simply for the player's age group."
-  }
-]`
+[{"id":"q_<8chars>","topic":"topic name","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
 
   try {
     const message = await anthropic.messages.create({

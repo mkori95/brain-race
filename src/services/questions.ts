@@ -55,11 +55,26 @@ async function fetchQuestionsFromBrowser(
   topicOverride: string | null | undefined,
   excludeIds: string[],
 ): Promise<Question[]> {
-  const topicLine = topicOverride
-    ? `This race topic focus: ${topicOverride} (make 80% of questions about this topic)`
-    : ''
+  const prompt = topicOverride
+    ? `You are a trivia question curator for a racing game called BrainRace.
 
-  const prompt = `You are a trivia question curator for a mobile racing game called BrainRace.
+Generate exactly 20 trivia questions. ALL 20 questions must be about "${topicOverride}" — no exceptions, no other topics.
+
+Rules:
+- Every single question must be specifically about ${topicOverride}
+- The "topic" field in every question must be exactly "${topicOverride}"
+- Match difficulty to: ${persona.difficultyPreference}
+- Match language complexity to age group: ${persona.ageGroup}
+- All answers must be factually correct
+- No two questions about the exact same fact
+- Question text: max 12 words. Each answer option: max 6 words
+- Each question must have exactly 4 options
+- The correct answer must be one of the 4 options
+- Excluded question IDs (do not reuse): ${excludeIds.slice(0, 20).join(', ') || 'none'}
+
+Return a JSON array only — no markdown, no explanation, just the array:
+[{"id":"q_<8chars>","topic":"${topicOverride}","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
+    : `You are a trivia question curator for a racing game called BrainRace.
 
 Player Profile:
 - Name: ${persona.name}
@@ -67,12 +82,11 @@ Player Profile:
 - Roles: ${persona.roles.join(', ') || 'not specified'}
 - Interests: ${persona.interests.join(', ') || 'general knowledge'}
 - Difficulty Preference: ${persona.difficultyPreference}
-${topicLine}
 
 Generate exactly 20 trivia questions personalized for this player.
 
 Rules:
-- ${topicOverride ? `80% of questions must be about "${topicOverride}", 20% from adjacent topics` : '60% from their interest topics, 20% adjacent topics, 20% general knowledge'}
+- 60% from their interest topics, 20% adjacent topics, 20% general knowledge
 - Match language complexity to their age group
 - All answers must be factually correct
 - No two questions about the exact same fact
