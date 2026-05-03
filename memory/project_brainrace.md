@@ -4,31 +4,49 @@ description: Core goals, confirmed tech stack, architecture decisions, and curre
 type: project
 ---
 
-BrainRace is a trivia-powered racing game — Road Fighter style top-down vertical scroller. A pre-race qualifier quiz (5 questions) determines grid position and start delay. The race is pure reflex driving: dodge traffic, collect pickups, manage fuel, hit checkpoints.
+BrainRace is a trivia-powered racing game — Road Fighter style top-down vertical scroller. A pre-race qualifier quiz (5 questions) determines grid position and start delay. The race itself is pure reflex driving — no questions during the race.
 
-**Why:** User wants to build a fun, personalized knowledge game playable by anyone from kids to developers.
+**Why:** User wants a fun, personalized knowledge game playable by anyone from kids to developers.
 
-**Platform:** Browser-first (React + Vite), Capacitor-wrappable for iOS/Android. No rewrite needed.
+**Platform:** Browser-first (React + Vite), Capacitor-wrappable for iOS/Android.
 
-**Tech stack:**
+**Confirmed tech stack:**
 - React + Vite + TypeScript (frontend)
-- Phaser 3 (WebGL, top-down scroller — `src/game/RaceScene.ts`)
+- Phaser 3 (WebGL, Road Fighter vertical scroller — `src/game/RaceScene.ts`)
 - Firebase Auth (email/password) + Firestore (JS SDK, free Spark plan)
-- Vercel (hosting + serverless API routes)
-- Claude Haiku (`claude-haiku-4-5`) as default via `CLAUDE_MODEL` env var (swappable)
+- Vercel (hosting + serverless API routes — free tier)
+- Claude Haiku (`claude-haiku-4-5-20251001`) as default via `CLAUDE_MODEL` env var (swappable)
 - Zustand (`src/store/useGameStore.ts`)
-- Web Audio API (`src/game/audioEngine.ts`) — procedural sounds, no audio files
 - Capacitor (future mobile)
 
 **Key architecture decisions:**
-- Claude API key NEVER in browser — proxied via `/api/questions` Vercel function
-- Coins NEVER set by client — validated server-side via `/api/coins` with Firebase Admin
-- `raceBridge` pattern: `src/game/raceBridge.ts` — shared mutable singleton; React writes config before race, Phaser writes runtime state every frame
+- Claude API key NEVER in browser in production — proxied via Vercel serverless `/api/questions`
+- **Local dev question cascade:** Vercel → browser direct Anthropic (`VITE_ANTHROPIC_API_KEY`) → offline fallback
+- Coins NEVER written by client — validated server-side via `/api/coins`
+- **Qualifier (pre-race, 5 questions, 15s each)** → grid position 1–5 → `GRID_DELAY_MS` start delay
+- **Race is pure driving** — no questions during race
+- **raceBridge pattern:** `src/game/raceBridge.ts` — React writes config before race, Phaser writes runtime state every frame (fuel, score, distance, gameOver, raceFinished, lives, ammo), React reads for HUD
 - Questions pool resets when `available.length < 10`
-- `pendingRef` pattern in QualiScreen: defers `submitQualiAnswer` 900ms so correct/wrong animations run against the right question (Zustand updates synchronously — reading immediately after gives new value)
-- `stopEngine()` called in both RaceScreen useEffect cleanup AND `handleQuit()` — not just via Phaser lifecycle
 
 **Git remote:** git@github.com:mkori95/brain-race.git (SSH, main branch)
+
+---
+
+## CRITICAL — ONE CODEBASE RULE
+
+**All code edits must go directly to the main project folder on the `main` branch:**
+- ✅ Correct: `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/src/...`
+- ❌ Wrong: editing files inside `.claude/worktrees/<any-worktree>/src/...`
+
+**Why:** Claude Code creates a new git worktree for each session. If fixes are made only inside a worktree branch and never merged to `main`, code drifts apart and changes get lost across sessions. The user explicitly requested one single copy of the codebase.
+
+**How to apply:**
+1. Always read files from the main project folder (`/brain-race/src/`)
+2. Always write edits to the main project folder
+3. After each significant fix, commit to `main` and push to `origin/main`
+4. If a session creates a new worktree, merge any fixes back to `main` before the session ends — never leave code only in a worktree branch
+
+**Env file:** `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/.env` — single source of truth, in `.gitignore`, never committed. All worktrees symlink to it.
 
 ---
 
@@ -37,87 +55,78 @@ BrainRace is a trivia-powered racing game — Road Fighter style top-down vertic
 ```
 Race Setup (topic + track theme)
         ↓
-Qualifier (5 Qs, 15s each) → Grid Position 1–5
+Qualifier (5 Qs, 15s each, circular timer) → Grid Position 1–5
         ↓
-90s Road Fighter Race (traffic, pickups, fuel, checkpoints)
+Road Fighter Race (4-lane road, battle car, shoot/dodge traffic, fuel, checkpoints)
         ↓
 Post-Race (score, XP, coins, streak)
 ```
 
----
+### Qualifier system
+- `AI_QUALI_SCORES = [1, 2, 3, 4]` (Rex, Zara, Bolt, Nova)
+- Player score 0–5 compared to AI scores; rank = gridPosition
+- `GRID_DELAY_MS = { 1: 0, 2: 800, 3: 1600, 4: 2400, 5: 3200 }`
+- P5 starts with 80% fuel (penalty: `1.0 - (gridPosition-1) * 0.05`)
 
-## Build Status — PHASE 3 COMPLETE (2026-04-29)
+### Road Fighter race mechanics
+- **4-lane road** (`ROAD_W=280`, `LANE_W=70`): left 2 lanes = oncoming (L0/L1), right 2 lanes = forward + player (L2/L3)
+- **Player:** battle car (red armored), two-gear system (Z/↑ = low ~200 km/h; X = high ~400 km/h, 2.2× fuel burn; release = coast; ↓ = brake), lateral drag (← → at 220 px/s)
+- **Shooting:** SPACE bar; 10,000 starting ammo (shown as ∞); bullets hit yellow/red/blue/truck/incoming, NOT cop; +150 oncoming / +80 traffic; explosion particles
+- **Cop cars:** RAM for bonus points (no life loss)
+- **Spin/failure system:** 3 spins per life → respawn + failureCount++; 3 failures = game over; `raceBridge.lives = MAX_FAILURES - failureCount`
+- **Traffic types:** yellow (straight), red (blocks player lane), blue (aggressive lane changes), truck (instant life loss), fuel_car (collect +30% fuel), incoming (head-on, green, flipped), cop (ram for points)
+- **Traffic spawn guard:** `ps < 50` → no spawns; road empty at standstill
+- **Fuel pickups** scroll in any lane; checkpoints at dist 5000/10000/15000 add +25% fuel
+- **Finish line** at dist 20000; race ends on finish OR fuel=0
+- **Road curve:** distance-based discrete sections (straight 1200–2800 units, curve 700–1600 units); when `ps ≤ 5`, curve lerps back to 0 — road never tilts at standstill
+- **roadScrollY only advances when ps > 0** — road completely static at standstill
 
-### ✅ All screens built and working:
-- OnboardingScreen (5-step persona wizard)
-- AuthScreen (email login/signup)
-- HomeScreen (streak banner, 7-day dot progress, daily challenge card)
-- RaceSetupScreen (topic picker, track theme selector, vehicle preview)
-- VehicleSelectionScreen (buy + upgrade)
-- QualiScreen (circular SVG timer, answer animations, confetti on P1, back button)
-- RaceScreen (Phaser canvas + React overlay HUD, quit dialog)
-- PostRaceScreen (streak milestone, XP bar, coin breakdown)
-- GarageScreen (vehicle overview, personal bests)
-- DailyChallengeScreen (daily topic, streak tracking)
-- ProfileScreen (edit persona)
+### raceBridge fields
+```typescript
+// React → Phaser
+gridPosition, startDelayMs, playerLevel, playerColor, trackTheme
 
-### ✅ Phase 3 Visual Overhaul — all 10 items done:
-1. Parallax background: sky (depth 0), bg layer at 18% speed (depth 1), near scenery (depth 4)
-2. Road: theme-aware asphalt + banding + animated curbs + scrolling guardrail posts
-3. Player car: headlights, shadow, exhaust, nitro flame, crash spin + lateral drift
-4. Traffic: sedan, oncoming racer, truck — CAR_W=20/CAR_H=34; hit car destroyed on collision
-5. Particles: crash sparks, nitro exhaust, coin/fuel/nitro bursts, oil smoke, score floats
-6. Screen FX: speed lines, fuel border flash, nitro vignette, camera shake + flash
-7. HUD: 10-segment fuel gauge, speedometer, mini-map (14×110px), pickup notifications
-8. Qualifier: circular SVG timer, scorePop/shake animations, colored key badges, confetti
-9. Sound: Web Audio engine hum, coin, fuel, nitro, crash, oil — stopEngine() lifecycle fixed
-10. Track themes: Night City / Desert Highway / Mountain Pass (sky + road + curbs + dashes + bg + scenery)
+// Phaser → React (every frame)
+fuelLevel, raceScore, distanceTraveled, gameOver, raceFinished, playerLane, lives, ammo
 
-### ✅ Bug fixes:
-- Coin pickup: drawPickup draws at local cy=0 (g.y already = world position)
-- Qualifier 4/5 count bug: pendingRef defers store update past animation window
-- quitRace() action: resets without awarding XP/coins/streak
-- Back buttons on QualiScreen; quit dialog in RaceScreen
-- Checkpoints: 350/750/1200/1800 distance units (+10s each), finish at 2500
-- Audio: stopEngine() in RaceScreen cleanup + handleQuit()
-
-### ✅ XP/Streak system:
-- Daily streak: consecutive days detected, streakBonus = 300 + min(streak-1, 10) × 20
-- XP: +50/race, +200 for P1, +20/correct qualifier answer
-- Levels: rookie→amateur→pro→expert→legend (0/500/1500/4000/10000 XP)
+// Event callbacks
+onFuelCollected, onCrash, onCheckpoint
+```
 
 ---
 
-## Key constants (RaceScene.ts)
-- Canvas: 480×560, 5 lanes, ROAD_W=270
-- PLAYER_Y = 0.82 × CANVAS_H
-- BASE_SPEED=200, MAX_SPEED=520, SPEED_RAMP=+25/30s
-- CAR_W=20, CAR_H=34 (player bw=24, bh=42)
-- Checkpoints at distance 350/750/1200/1800/2500 (last = finish)
-- 1 game-distance-unit = 20 screen pixels
-- RACE_DURATION_S=90, QUALI_QUESTION_COUNT=5
+## Build Status (as of 2026-05-02) — ROAD FIGHTER COMPLETE
 
-## raceBridge fields (React → Phaser, set before race)
-- gridPosition, startDelayMs, playerLevel, playerColor, trackTheme
+### ✅ All screens working end-to-end:
+- OnboardingScreen, AuthScreen, HomeScreen, RaceSetupScreen
+- VehicleSelectionScreen, QualiScreen, RaceScreen, PostRaceScreen
+- GarageScreen, DailyChallengeScreen, ProfileScreen
 
-## raceBridge fields (Phaser → React, updated each frame)
-- fuelLevel, raceScore, distanceTraveled, gameOver, raceFinished, playerLane
-- onCoinCollected, onNitroCollected, onFuelCollected, onCrash, onCheckpoint (callbacks)
+### ✅ Auth fixes (2026-05-02):
+- Sign-up race condition fixed: `_signUpInProgress` flag prevents `onAuthStateChanged` from calling `setUser(null)` before `createUserProfile` finishes
+- Sign-in recovery: if Firestore profile missing, auto-creates a minimal profile so user can log in
+
+### ✅ Topic questions (2026-05-02):
+- Questions cascade: Vercel API → browser direct Anthropic call → offline fallback
+- `VITE_ANTHROPIC_API_KEY` in `.env` enables direct Claude calls in local dev for topic-specific questions
+- `TOPIC_CATEGORY_MAP` for offline fallback category expansion
+
+### ✅ Road Fighter visual overhaul:
+- Layout: GAME_W=350 + PANEL_W=130 right HUD panel
+- Right HUD: RANK/FUEL/RPM bars, hearts for lives, km/h speed, distance in km
+- Left shoulder: railroad crossties, crowd spectators, tree clusters
+- Right shoulder: tree/bush clusters, night lamp posts
+- Per-scanline road curve, headlights (night-only with glow beams)
+
+### ✅ TypeScript: `tsc --noEmit` passes clean
 
 ---
 
-## CRITICAL — worktree path
-All edits must go to the **worktree**, not the main project dir:
-- ✅ `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/.claude/worktrees/dreamy-heisenberg-012535/src/...`
-- ❌ `/Users/manikantabharadwajkoride/mani_scratchpad/projects/brain-race/src/...`
-
-Git branch: `claude/dreamy-heisenberg-012535`
-
----
-
-## Next up (Phase 4)
-- Level-based AI difficulty (traffic density/speed ceiling by playerLevel)
-- Multiplayer via Firebase Realtime Database (ghost overlays, shared leaderboard)
-- Google Sign-In
-- Ghost mode (race your personal best)
-- Topic leaderboards
+## Next Steps (Phase 4)
+1. Touch controls for mobile (swipe steer, tap shoot)
+2. More pickup types (ammo crate, shield, speed burst)
+3. More sounds (bullet fire, explosion, cop siren)
+4. PostRaceScreen stats (shots fired, kill count, accuracy)
+5. Level-based difficulty via `raceBridge.playerLevel`
+6. Topic leaderboards
+7. Google Sign-In
