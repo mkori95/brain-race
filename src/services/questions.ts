@@ -34,24 +34,23 @@ export const fetchQuestions = async (opts: FetchQuestionsOptions): Promise<{ que
     console.warn('Server API failed, trying direct browser call:', err)
   }
 
-  // 2. Browser-side Anthropic call (local dev with VITE_ANTHROPIC_API_KEY)
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY as string | undefined
-  if (apiKey) {
-    try {
-      const questions = await fetchQuestionsFromBrowser(apiKey, persona, topicOverride, excludeIds)
-      if (questions.length >= 5) return { questions, offline: false }
-    } catch (err) {
-      console.warn('Browser Anthropic call failed, using fallback:', err)
-    }
+  // 2. Vite dev proxy → Anthropic (local dev only; proxy defined in vite.config.ts)
+  try {
+    const questions = await fetchQuestionsFromBrowser('', persona, topicOverride, excludeIds)
+    if (questions.length >= 5) return { questions, offline: false }
+  } catch (err) {
+    console.warn('Anthropic proxy call failed, using fallback:', err)
   }
 
   // 3. Offline fallback
   return { questions: getOfflineQuestions(persona, excludeIds, topicOverride), offline: true }
 }
 
-// ── Direct browser-side Anthropic call (for local dev) ──────────
+// ── Direct Anthropic call via Vite dev proxy (no CORS) ──────────
+// In local dev, /anthropic-proxy/* is forwarded server-side by vite.config.ts
+// In production, /api/questions (Vercel serverless) handles this instead
 async function fetchQuestionsFromBrowser(
-  apiKey: string,
+  _apiKey: string,
   persona: Persona,
   topicOverride: string | null | undefined,
   excludeIds: string[],
@@ -85,14 +84,10 @@ Rules:
 Return a JSON array only — no markdown, no explanation, just the array:
 [{"id":"q_<8chars>","topic":"topic name","question":"Question?","options":["A","B","C","D"],"correct":"A","explanation":"Brief explanation."}]`
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  // Use same-origin proxy — Vite dev server forwards this to Anthropic server-side
+  const response = await fetch('/anthropic-proxy/v1/messages', {
     method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-      'anthropic-dangerous-allow-browser': 'true',
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4096,
